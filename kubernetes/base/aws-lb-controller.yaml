@@ -1,0 +1,17 @@
+# AWS Load Balancer Controller — required for ALB Ingress
+# Deployed via Helm in infrastructure-services chart
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+  labels:
+    app.kubernetes.io/name: aws-load-balancer-controller
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/jol-lb-controller-irsa"
+automountServiceAccountToken: false

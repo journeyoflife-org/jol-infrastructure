@@ -1,0 +1,7 @@
+# Metrics Server — required for HPA and kubectl top
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-server
+  namespace: kube-system
+automountServiceAccountToken: false

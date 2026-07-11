@@ -1,0 +1,41 @@
+# =============================================================================
+# Qodana — JetBrains Code Quality & Security Analysis
+# Runs in CI via .github/workflows/infra-validate.yml
+# Connected to PyCharm for local IDE integration
+# =============================================================================
+
+version: "1.0"
+
+profile:
+  name: qodana.recommended
+
+# Exclude non-source directories from analysis
+exclude:
+  - name: all
+    paths:
+      - .venv
+      - .terraform
+      - .idea
+      - node_modules
+      - .github
+      - helm/charts/*/charts
+
+# Fail pipeline on any CRITICAL severity issue
+failThreshold: 0
+
+# Project configuration for JetBrains IDE sync
+projectJDKName: "Python 3.12"
+
+# Enable inspections relevant to infrastructure-as-code
+include:
+  # Terraform
+  - name: TerraformResourceSchema
+  - name: TerraformVariableMissingDescription
+  - name: TerraformMissingVersionConstraint
+  # YAML
+  - name: YAMLSchemaValidation
+  # Shell
+  - name: ShellCheck
+  # General
+  - name: SpellChecking
+  - name: TodoComment

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: jol-library
+description: Shared Helm library chart for JOL services (future use)
+type: library
+version: 0.1.0

@@ -1,0 +1,69 @@
+# =============================================================================
+# Pre-commit Auto-Update
+# Automatically updates pre-commit hook versions monthly
+# Creates a PR with the updated .pre-commit-config.yaml
+# =============================================================================
+name: "Pre-commit Auto-Update"
+
+on:
+  schedule:
+    # First Monday of every month at 06:00 UTC
+    - cron: "0 6 1-7 * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-hooks:
+    name: "🔄 Update Pre-commit Hooks"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Update hooks
+        run: pre-commit autoupdate
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet .pre-commit-config.yaml; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update pre-commit hook versions"
+          title: "chore: update pre-commit hook versions"
+          body: |
+            ## Automated Pre-commit Update
+
+            This PR was created automatically by the monthly pre-commit auto-update workflow.
+
+            ### Changes
+            Updated hook versions in `.pre-commit-config.yaml`.
+
+            ### Checklist
+            - [ ] Review version changes
+            - [ ] Verify CI passes with new versions
+            - [ ] Merge when ready
+          branch: chore/pre-commit-autoupdate
+          delete-branch: true
+          labels: |
+            chore
+            automated

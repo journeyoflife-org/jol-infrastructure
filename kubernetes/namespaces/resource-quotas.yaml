@@ -1,0 +1,58 @@
+# Resource Quotas — CPU/memory/pod limits per namespace
+# Prevents resource starvation and uncontrolled scaling
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: jol-backend-quota
+  namespace: jol-backend
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "30"
+    services: "10"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: jol-frontend-quota
+  namespace: jol-frontend
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "20"
+    services: "5"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: jol-analytics-quota
+  namespace: jol-analytics
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    pods: "20"
+    services: "10"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: jol-commerce-quota
+  namespace: jol-commerce
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "30"
+    services: "10"

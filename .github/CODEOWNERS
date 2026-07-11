@@ -1,0 +1,30 @@
+# =============================================================================
+# CODEOWNERS — jol-infrastructure
+# SOC 2 CC8.1 — All infrastructure changes require CODEOWNER approval
+# =============================================================================
+
+# Global — all infrastructure changes require platform team review
+*                           @journeyoflife-org/platform-team
+
+# Terraform — core infrastructure
+/terraform/                 @journeyoflife-org/platform-team @journeyoflife-org/sre-team
+/terraform/environments/prod/ @journeyoflife-org/platform-team @journeyoflife-org/security-team
+
+# Kubernetes — cluster configuration
+/kubernetes/                @journeyoflife-org/platform-team
+/kubernetes/policies/       @journeyoflife-org/security-team
+
+# Helm — application deployment
+/helm/                      @journeyoflife-org/platform-team @journeyoflife-org/dev-team
+
+# Policies — security and compliance
+/policies/                  @journeyoflife-org/security-team @journeyoflife-org/compliance
+
+# CI/CD workflows
+/.github/workflows/         @journeyoflife-org/platform-team @journeyoflife-org/devops
+
+# Scripts — operational tooling
+/scripts/                   @journeyoflife-org/sre-team
+
+# Documentation
+/docs/                      @journeyoflife-org/platform-team

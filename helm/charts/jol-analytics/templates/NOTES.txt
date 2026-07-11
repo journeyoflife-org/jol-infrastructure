@@ -1,0 +1,21 @@
+{{ .Chart.Name }} has been deployed successfully!
+
+  Environment: {{ .Release.Namespace }}
+  Release:     {{ .Release.Name }}
+
+  To check the status:
+    kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ .Chart.Name }}
+
+  {{- if .Values.ingress.enabled }}
+
+  Application URL:
+  {{- range .Values.ingress.hosts }}
+    https://{{ .host }}
+  {{- end }}
+  {{- end }}
+
+  {{- if .Values.externalSecrets.enabled }}
+
+  Secrets are managed via External Secrets Operator.
+  Check status: kubectl get externalsecret -n {{ .Release.Namespace }}
+  {{- end }}

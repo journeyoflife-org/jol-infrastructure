@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.venv
+.terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.pem
+*.key
+.env
+.env.*
+docs/
+soc2-evidence-*
+sbom/
+qodana-results/

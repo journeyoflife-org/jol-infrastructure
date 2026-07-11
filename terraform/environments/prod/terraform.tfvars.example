@@ -1,0 +1,22 @@
+# =============================================================================
+# Environment: prod — Example tfvars
+# Copy to terraform.tfvars and fill in actual values
+# =============================================================================
+
+aws_region  = "eu-central-1"
+vpc_cidr    = "10.0.0.0/16"
+
+# Subnets
+public_subnet_cidrs   = ["10.0.1.0/24","10.0.2.0/24","10.0.3.0/24"]
+private_subnet_cidrs  = ["10.0.10.0/24","10.0.11.0/24","10.0.12.0/24"]
+database_subnet_cidrs = ["10.0.20.0/24","10.0.21.0/24","10.0.22.0/24"]
+
+# EKS
+cluster_version     = "1.30"
+node_desired_size   = 5
+node_max_size       = 10
+node_min_size       = 3
+node_instance_types = ["t3.large","t3.xlarge"]
+
+# Alerts
+alert_email_addresses = ["ops@journeyoflife.org"]

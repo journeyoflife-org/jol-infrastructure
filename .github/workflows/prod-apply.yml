@@ -1,0 +1,197 @@
+# =============================================================================
+# Production Apply — Manual Trigger Only
+# SOC 2 CC8.1 — Production changes require explicit human approval
+# ISO 27001 A.12.1.2 — Change management: production applies are gated
+# =============================================================================
+name: "Production Apply"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to apply"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+      component:
+        description: "Component to apply (terraform, kubernetes, helm)"
+        required: true
+        type: choice
+        options:
+          - terraform
+          - kubernetes
+          - helm
+          - all
+      approval_reason:
+        description: "Business justification for this production change"
+        required: true
+        type: string
+      rollback_ticket:
+        description: "Jira/Linear ticket ID for rollback reference"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: prod-apply-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.9.0"
+  AWS_REGION: "eu-central-1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Pre-flight validation
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: "✅ Pre-flight Checks"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          echo "🔍 Validating production apply request..."
+          echo "  Environment : ${{ github.event.inputs.environment }}"
+          echo "  Component   : ${{ github.event.inputs.component }}"
+          echo "  Reason      : ${{ github.event.inputs.approval_reason }}"
+          echo "  Rollback ID : ${{ github.event.inputs.rollback_ticket }}"
+          echo "  Requested by: ${{ github.actor }}"
+
+          if [ -z "${{ github.event.inputs.approval_reason }}" ]; then
+            echo "❌ Approval reason is required"
+            exit 1
+          fi
+
+          if [ -z "${{ github.event.inputs.rollback_ticket }}" ]; then
+            echo "❌ Rollback ticket is required"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Terraform Apply
+  # ---------------------------------------------------------------------------
+  terraform-apply:
+    name: "🚀 Terraform Apply — ${{ github.event.inputs.environment }}"
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: contains(fromJson('["terraform", "all"]'), github.event.inputs.component)
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform/environments/${{ github.event.inputs.environment }}
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        working-directory: terraform/environments/${{ github.event.inputs.environment }}
+        run: |
+          terraform apply -input=false -auto-approve
+
+      - name: Log apply to CHANGELOG
+        run: |
+          echo "| $(date -u +%Y-%m-%dT%H:%M:%SZ) | ${{ github.actor }} | terraform apply ${{ github.event.inputs.environment }} | ${{ github.event.inputs.rollback_ticket }} |" \
+            >> CHANGELOG.md
+
+  # ---------------------------------------------------------------------------
+  # Kubernetes Apply
+  # ---------------------------------------------------------------------------
+  kubernetes-apply:
+    name: "☸️ Kubernetes Apply — ${{ github.event.inputs.environment }}"
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: contains(fromJson('["kubernetes", "all"]'), github.event.inputs.component)
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name jol-${{ github.event.inputs.environment }}-cluster \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -k kubernetes/overlays/${{ github.event.inputs.environment }}/
+
+  # ---------------------------------------------------------------------------
+  # Helm Apply
+  # ---------------------------------------------------------------------------
+  helm-apply:
+    name: "⎈ Helm Apply — ${{ github.event.inputs.environment }}"
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: contains(fromJson('["helm", "all"]'), github.event.inputs.component)
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name jol-${{ github.event.inputs.environment }}-cluster \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy Helm charts
+        run: |
+          # Application charts → jol-{env} namespace
+          for chart in jol-backend jol-frontend jol-analytics jol-commerce; do
+            helm upgrade --install "$chart" \
+              "helm/charts/$chart" \
+              -f "helm/environments/${{ github.event.inputs.environment }}/values-${chart}.yaml" \
+              --namespace "jol-${{ github.event.inputs.environment }}" \
+              --create-namespace \
+              --wait --timeout 10m
+          done
+
+          # Infrastructure services → monitoring namespace
+          helm upgrade --install jol-infrastructure-services \
+            "helm/charts/jol-infrastructure-services" \
+            -f "helm/environments/${{ github.event.inputs.environment }}/values-jol-infrastructure-services.yaml" \
+            --namespace monitoring \
+            --create-namespace \
+            --wait --timeout 15m

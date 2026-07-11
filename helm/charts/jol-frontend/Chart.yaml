@@ -1,0 +1,12 @@
+apiVersion: v2
+name: jol-frontend
+description: React frontend application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - jol
+  - journey-of-life
+maintainers:
+  - name: Journey of Life Platform Team
+    email: platform@journeyoflife.org

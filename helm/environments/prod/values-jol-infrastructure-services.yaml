@@ -1,0 +1,29 @@
+# prod values for infrastructure services
+externalSecrets:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+certManager:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+monitoring:
+  enabled: true
+  prometheus:
+    retention: 90d
+    storage: 100Gi
+  grafana:
+    persistence:
+      size: 20Gi

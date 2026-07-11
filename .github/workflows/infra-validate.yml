@@ -1,0 +1,192 @@
+# =============================================================================
+# Infrastructure Validation Pipeline
+# Runs: TruffleHog, Checkov, tfsec, OPA tests, Helm lint, Qodana
+# Trigger: push/PR to main, develop, feature/*
+# SOC 2 CC8.1 — All infrastructure changes are validated before merge
+# =============================================================================
+name: "Infrastructure Validation"
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - "terraform/**"
+      - "kubernetes/**"
+      - "helm/**"
+      - "policies/**"
+      - "scripts/**"
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: infra-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Secret Scanning — TruffleHog
+  # ISO 27001 A.8.4 / SOC 2 CC6.1
+  # ---------------------------------------------------------------------------
+  trufflehog-scan:
+    name: "🔐 TruffleHog Secret Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  # ---------------------------------------------------------------------------
+  # Terraform Static Analysis — Checkov
+  # CIS Benchmarks, NIST, SOC 2 policy packs
+  # ---------------------------------------------------------------------------
+  checkov-scan:
+    name: "🛡️ Checkov Policy Scan"
+    runs-on: ubuntu-latest
+    needs: trufflehog-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          config_file: policies/checkov/.checkov.yaml
+          output_format: cli,sarif
+          output_file_path: console,checkov-results.sarif
+          soft_fail: false
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # Terraform Security — tfsec
+  # ---------------------------------------------------------------------------
+  tfsec-scan:
+    name: "🔒 tfsec Security Scan"
+    runs-on: ubuntu-latest
+    needs: trufflehog-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform/
+          format: sarif
+          config_file: policies/tfsec/config.yaml
+
+  # ---------------------------------------------------------------------------
+  # OPA Policy Tests
+  # SOC 2 CC6.1 — Logical access controls enforced via policy-as-code
+  # ---------------------------------------------------------------------------
+  opa-test:
+    name: "📜 OPA Policy Tests"
+    runs-on: ubuntu-latest
+    needs: trufflehog-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Run OPA tests
+        run: |
+          opa test policies/opa/ -v --coverage
+          opa fmt --lint --fail policies/opa/
+
+  # ---------------------------------------------------------------------------
+  # Helm Lint — Chart validation
+  # ---------------------------------------------------------------------------
+  helm-lint:
+    name: "⎈ Helm Chart Lint"
+    runs-on: ubuntu-latest
+    needs: trufflehog-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm charts
+        run: |
+          for chart in helm/charts/jol-*/; do
+            if [ -f "$chart/Chart.yaml" ]; then
+              echo "Linting $(basename $chart)..."
+              helm lint "$chart"
+            fi
+          done
+
+      - name: Template dry-run
+        run: |
+          for chart in jol-backend jol-frontend jol-analytics jol-commerce; do
+            echo "Rendering $chart..."
+            helm template "$chart" "helm/charts/$chart" > /dev/null
+          done
+
+  # ---------------------------------------------------------------------------
+  # Dependency Review — License & vulnerability check for PRs
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: "📦 Dependency Review"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
+
+  # ---------------------------------------------------------------------------
+  # Qodana — JetBrains Code Quality & Security Analysis
+  # Connected to PyCharm IDE for local ↔ CI sync
+  # Fails on CRITICAL severity issues
+  # ---------------------------------------------------------------------------
+  qodana-scan:
+    name: "🔍 Qodana Code Quality"
+    runs-on: ubuntu-latest
+    needs: [checkov-scan, tfsec-scan, opa-test, helm-lint]
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Qodana
+        uses: JetBrains/qodana-action@v2024.1.9
+        with:
+          pr-mode: true
+          upload-result: true
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}

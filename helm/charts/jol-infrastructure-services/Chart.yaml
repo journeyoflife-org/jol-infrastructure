@@ -1,0 +1,19 @@
+apiVersion: v2
+name: jol-infrastructure-services
+description: Infrastructure services — External Secrets Operator, cert-manager, monitoring
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: external-secrets
+    version: "0.10.0"
+    repository: "https://charts.external-secrets.io"
+    condition: externalSecrets.enabled
+  - name: cert-manager
+    version: "1.15.0"
+    repository: "https://charts.jetstack.io"
+    condition: certManager.enabled
+  - name: kube-prometheus-stack
+    version: "62.0.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: monitoring.enabled
