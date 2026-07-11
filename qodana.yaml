@@ -6,6 +6,9 @@
 
 version: "1.0"
 
+# Linter image: qodana-jvm includes the Terraform plugin and matches the GitHub Action version
+linter: jetbrains/qodana-jvm:2024.1
+
 profile:
   name: qodana.recommended
 
