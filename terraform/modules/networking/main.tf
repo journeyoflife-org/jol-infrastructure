@@ -41,8 +41,8 @@ resource "aws_subnet" "public" {
 
   tags = merge(var.tags, {
     Name                                        = "${var.project}-public-${var.environment}-${count.index}"
-    "kubernetes.io/role/elb"                     = "1"
-    "kubernetes.io/cluster/${var.cluster_name}"  = "shared"
+    "kubernetes.io/role/elb"                    = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   })
 }
 
@@ -58,8 +58,8 @@ resource "aws_subnet" "private" {
 
   tags = merge(var.tags, {
     Name                                        = "${var.project}-private-${var.environment}-${count.index}"
-    "kubernetes.io/role/internal-elb"            = "1"
-    "kubernetes.io/cluster/${var.cluster_name}"  = "shared"
+    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   })
 }
 

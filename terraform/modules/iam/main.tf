@@ -11,7 +11,7 @@ module "irsa_external_secrets" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.40"
 
-  role_name                     = "${var.project}-${var.environment}-external-secrets"
+  role_name                      = "${var.project}-${var.environment}-external-secrets"
   attach_external_secrets_policy = true
 
   oidc_providers = {
@@ -31,8 +31,8 @@ module "irsa_cert_manager" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.40"
 
-  role_name                      = "${var.project}-${var.environment}-cert-manager"
-  attach_cert_manager_policy     = false
+  role_name                  = "${var.project}-${var.environment}-cert-manager"
+  attach_cert_manager_policy = false
 
   oidc_providers = {
     main = {

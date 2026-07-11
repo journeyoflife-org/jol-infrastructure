@@ -4,8 +4,9 @@
 # =============================================================================
 
 locals {
-  project     = "jol"
-  environment = "prod"
+  project      = "jol"
+  environment  = "prod"
+  cluster_name = "${local.project}-${local.environment}-cluster"
   common_tags = {
     Project     = local.project
     Environment = local.environment
@@ -26,7 +27,7 @@ module "networking" {
   private_subnet_cidrs  = var.private_subnet_cidrs
   database_subnet_cidrs = var.database_subnet_cidrs
   availability_zones    = var.availability_zones
-  cluster_name          = module.kubernetes.cluster_name
+  cluster_name          = local.cluster_name
   enable_nat_gateway    = true
   multi_az_nat          = var.multi_az_nat
   tags                  = local.common_tags
@@ -38,17 +39,17 @@ module "networking" {
 module "kubernetes" {
   source = "../../modules/kubernetes"
 
-  project            = local.project
-  environment        = local.environment
-  vpc_id             = module.networking.vpc_id
-  private_subnet_ids = module.networking.private_subnet_ids
-  cluster_version    = var.cluster_version
-  kms_key_arn        = module.storage.kms_key_arn
-  node_desired_size  = var.node_desired_size
-  node_max_size      = var.node_max_size
-  node_min_size      = var.node_min_size
+  project             = local.project
+  environment         = local.environment
+  vpc_id              = module.networking.vpc_id
+  private_subnet_ids  = module.networking.private_subnet_ids
+  cluster_version     = var.cluster_version
+  kms_key_arn         = module.storage.kms_key_arn
+  node_desired_size   = var.node_desired_size
+  node_max_size       = var.node_max_size
+  node_min_size       = var.node_min_size
   node_instance_types = var.node_instance_types
-  tags               = local.common_tags
+  tags                = local.common_tags
 }
 
 # ---------------------------------------------------------------------------
@@ -81,11 +82,11 @@ module "iam" {
 module "monitoring" {
   source = "../../modules/monitoring"
 
-  project              = local.project
-  environment          = local.environment
-  aws_region           = var.aws_region
-  cluster_name         = module.kubernetes.cluster_name
-  kms_key_arn          = module.storage.kms_key_arn
+  project               = local.project
+  environment           = local.environment
+  aws_region            = var.aws_region
+  cluster_name          = local.cluster_name
+  kms_key_arn           = module.storage.kms_key_arn
   alert_email_addresses = var.alert_email_addresses
-  tags                 = local.common_tags
+  tags                  = local.common_tags
 }

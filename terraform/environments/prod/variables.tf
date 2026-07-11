@@ -17,19 +17,19 @@ variable "vpc_cidr" {
 variable "public_subnet_cidrs" {
   description = "Public subnet CIDRs"
   type        = list(string)
-  default     = ["10.0.1.0/24","10.0.2.0/24","10.0.3.0/24"]
+  default     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
 }
 
 variable "private_subnet_cidrs" {
   description = "Private subnet CIDRs"
   type        = list(string)
-  default     = ["10.0.10.0/24","10.0.11.0/24","10.0.12.0/24"]
+  default     = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
 }
 
 variable "database_subnet_cidrs" {
   description = "Database subnet CIDRs"
   type        = list(string)
-  default     = ["10.0.20.0/24","10.0.21.0/24","10.0.22.0/24"]
+  default     = ["10.0.20.0/24", "10.0.21.0/24", "10.0.22.0/24"]
 }
 
 variable "availability_zones" {
@@ -65,7 +65,7 @@ variable "node_min_size" {
 variable "node_instance_types" {
   description = "Node instance types"
   type        = list(string)
-  default     = ["t3.large","t3.xlarge"]
+  default     = ["t3.large", "t3.xlarge"]
 }
 
 variable "multi_az_nat" {
