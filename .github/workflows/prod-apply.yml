@@ -92,7 +92,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
@@ -131,7 +131,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup kubectl
@@ -164,7 +164,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Helm

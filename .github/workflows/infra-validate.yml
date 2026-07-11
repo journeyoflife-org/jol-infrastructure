@@ -72,8 +72,8 @@ jobs:
           soft_fail: false
 
       - name: Upload SARIF results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: checkov-results.sarif
 
@@ -115,7 +115,7 @@ jobs:
       - name: Run OPA tests
         run: |
           opa test policies/opa/ -v --coverage
-          opa fmt --lint --fail policies/opa/
+          opa fmt --fail policies/opa/
 
   # ---------------------------------------------------------------------------
   # Helm Lint — Chart validation
@@ -154,6 +154,9 @@ jobs:
     name: "📦 Dependency Review"
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    # GHAS + Dependency graph must be enabled for strict enforcement.
+    # Until then, this job reports issues but does not block merges.
+    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -163,6 +166,12 @@ jobs:
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
+
+      - name: Warn if Dependency Review is unavailable
+        if: failure()
+        run: |
+          echo "::warning::Dependency Review requires GitHub Advanced Security and Dependency graph."
+          echo "Enable them at https://github.com/${{ github.repository }}/settings/security_analysis"
 
   # ---------------------------------------------------------------------------
   # Qodana — JetBrains Code Quality & Security Analysis

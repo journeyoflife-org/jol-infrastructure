@@ -5,6 +5,7 @@
 
 # --- Terraform ---
 .terraform/
+.external_modules/
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
