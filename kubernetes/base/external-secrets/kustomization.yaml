@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: external-secrets
+
+resources:
+  - github.com/external-secrets/external-secrets//deploy/crds?ref=v0.10.0
+  - cluster-secret-store.yaml

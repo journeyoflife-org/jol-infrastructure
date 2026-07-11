@@ -1,0 +1,36 @@
+# dev values for jol-analytics
+replicaCount: 1
+
+image:
+  tag: "latest"  # Override in CI with git SHA
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 75
+
+ingress:
+  hosts:
+    - host: "jol-analytics-dev.journeyoflife.org"
+      paths:
+        - path: /
+          pathType: Prefix
+
+externalSecrets:
+  enabled: true
+  secrets:
+    - key: database-url
+      remoteKey: "dev/jol-analytics/database"
+      property: url
+    - key: secret-key
+      remoteKey: "dev/jol-analytics/app"
+      property: secret_key

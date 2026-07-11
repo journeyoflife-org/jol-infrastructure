@@ -1,0 +1,14 @@
+# Role Bindings — scoped to specific namespaces
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: monitoring-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: monitoring-reader
+subjects:
+  - kind: ServiceAccount
+    name: monitoring-reader
+    namespace: monitoring

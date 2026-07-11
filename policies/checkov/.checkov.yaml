@@ -1,0 +1,30 @@
+# Checkov configuration for JOL infrastructure
+# SOC 2 CC8.1 — Infrastructure policy-as-code validation
+
+soft-fail: false
+framework:
+  - terraform
+  - kubernetes
+  - helm
+
+skip-check: []
+  # Document any skipped checks here with justification
+
+check:
+  - CKV_AWS_18    # S3 access logging
+  - CKV_AWS_19    # S3 encryption
+  - CKV_AWS_21    # S3 versioning
+  - CKV_AWS_23    # Security group description
+  - CKV_AWS_24    # Security group no wide open 0.0.0.0/0
+  - CKV_AWS_33    # KMS key rotation
+  - CKV_AWS_35    # Container insights enabled
+  - CKV_AWS_58    # EKS secrets encryption
+  - CKV_AWS_68    # Neptune logging
+  - CKV_AWS_144   # S3 cross-region replication
+  - CKV_K8S_1     # Do not admit privileged containers
+  - CKV_K8S_21    # Default namespace should not be used
+  - CKV_K8S_35    # Prefer secrets over configmaps
+
+compact: true
+output: cli
+download-external-modules: true

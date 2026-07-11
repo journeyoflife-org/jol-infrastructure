@@ -1,0 +1,61 @@
+# =============================================================================
+# pre-commit hooks
+# Runs on every commit to enforce quality and security standards
+# Install: pre-commit install
+# =============================================================================
+repos:
+  # --- Secret Detection ---
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.82.0
+    hooks:
+      - id: trufflehog
+        name: TruffleHog Secret Scan
+        entry: trufflehog filesystem --only-verified
+        stages: [commit]
+
+  # --- Terraform ---
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.92.0
+    hooks:
+      - id: terraform_fmt
+        name: Terraform Format
+      - id: terraform_validate
+        name: Terraform Validate
+      - id: terraform_checkov
+        name: Checkov Policy Scan
+        args:
+          - --args=--config-file=policies/checkov/.checkov.yaml
+      - id: terraform_tfsec
+        name: tfsec Security Scan
+        args:
+          - --args=--config-file=policies/tfsec/config.yaml
+
+  # --- YAML ---
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint.yaml]
+
+  # --- Shell ---
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [-x]
+
+  # --- General ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main, --branch, develop]
+      - id: check-added-large-files
+        args: [--maxkb=500]

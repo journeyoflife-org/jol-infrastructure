@@ -1,0 +1,47 @@
+# Dependabot — automated dependency updates
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci-cd"
+    reviewers:
+      - "journeyoflife-org/platform-team"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/bootstrap"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/dev"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/staging"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/prod"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "terraform"
+      - "production"

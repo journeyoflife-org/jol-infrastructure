@@ -1,0 +1,36 @@
+# prod values for jol-commerce
+replicaCount: 3
+
+image:
+  tag: "latest"  # Override in CI with git SHA
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 2048Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 9
+  targetCPUUtilizationPercentage: 75
+
+ingress:
+  hosts:
+    - host: "jol-commerce-prod.journeyoflife.org"
+      paths:
+        - path: /
+          pathType: Prefix
+
+externalSecrets:
+  enabled: true
+  secrets:
+    - key: database-url
+      remoteKey: "prod/jol-commerce/database"
+      property: url
+    - key: secret-key
+      remoteKey: "prod/jol-commerce/app"
+      property: secret_key

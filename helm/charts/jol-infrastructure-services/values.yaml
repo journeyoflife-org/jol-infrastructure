@@ -1,0 +1,8 @@
+# Infrastructure services values
+externalSecrets:
+  enabled: true
+certManager:
+  enabled: true
+  installCRDs: true
+monitoring:
+  enabled: true

@@ -1,0 +1,36 @@
+# staging values for jol-backend
+replicaCount: 2
+
+image:
+  tag: "latest"  # Override in CI with git SHA
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+ingress:
+  hosts:
+    - host: "jol-backend-staging.journeyoflife.org"
+      paths:
+        - path: /
+          pathType: Prefix
+
+externalSecrets:
+  enabled: true
+  secrets:
+    - key: database-url
+      remoteKey: "staging/jol-backend/database"
+      property: url
+    - key: secret-key
+      remoteKey: "staging/jol-backend/app"
+      property: secret_key

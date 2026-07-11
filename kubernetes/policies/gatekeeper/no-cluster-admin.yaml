@@ -1,0 +1,14 @@
+# Gatekeeper Constraint — No cluster-admin bindings
+# Enforced by OPA Gatekeeper
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sForbiddenClusterRoleBindings
+metadata:
+  name: no-cluster-admin
+spec:
+  match:
+    kinds:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        kinds: ["ClusterRoleBinding"]
+  parameters:
+    forbiddenRoles:
+      - cluster-admin

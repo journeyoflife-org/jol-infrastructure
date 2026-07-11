@@ -1,0 +1,109 @@
+name: Infrastructure Change Request
+description: Request a change to infrastructure configuration (terraform, kubernetes, helm, policies)
+title: "[infra-change]: "
+labels: ["infrastructure", "change-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🏗️ Infrastructure Change Request
+
+        Use this template to propose changes to the JOL infrastructure.
+        All changes are subject to SOC 2 CC8.1 change management controls.
+
+  - type: dropdown
+    id: change-type
+    attributes:
+      label: Change Type
+      description: What type of infrastructure change is this?
+      options:
+        - "terraform — Cloud resource provisioning"
+        - "kubernetes — Cluster/namespace configuration"
+        - "helm — Application deployment chart"
+        - "policy — OPA/Checkov/tfsec rule"
+        - "ci-cd — GitHub Actions workflow"
+        - "other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Target Environment(s)
+      multiple: true
+      options:
+        - dev
+        - staging
+        - prod
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk-level
+    attributes:
+      label: Risk Level
+      description: |
+        Assess the blast radius of this change.
+        - Low: Dev-only, no data impact
+        - Medium: Staging or non-critical production change
+        - High: Production data plane, networking, or IAM change
+        - Critical: Cross-environment, state migration, or destructive operation
+      options:
+        - "Low"
+        - "Medium"
+        - "High"
+        - "Critical"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Change Description
+      description: Describe the change, why it's needed, and expected outcome.
+      placeholder: |
+        **What:** Add a new RDS read replica in the staging environment
+        **Why:** Analytics queries are impacting primary DB performance
+        **Expected:** Read queries offloaded to replica, primary latency < 50ms
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollback-plan
+    attributes:
+      label: Rollback Plan
+      description: How will you revert if this change fails in production?
+      placeholder: |
+        1. Run `terraform apply -target=module.rds` with previous state
+        2. Verify primary DB health via CloudWatch metrics
+        3. Ticket: JOL-XXX
+    validations:
+      required: true
+
+  - type: input
+    id: ticket-id
+    attributes:
+      label: Ticket Reference
+      description: Jira/Linear ticket ID for audit trail (SOC 2 CC8.1)
+      placeholder: "JOL-1234"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: compliance-checklist
+    attributes:
+      label: Compliance Checklist
+      description: Verify your change meets the following requirements
+      options:
+        - label: "No secrets hardcoded (TruffleHog clean)"
+          required: true
+        - label: "Checkov/tfsec pass with no new critical findings"
+          required: true
+        - label: "OPA policies evaluated (if applicable)"
+          required: false
+        - label: "Rollback plan documented"
+          required: true
+        - label: "Cost impact assessed (if applicable)"
+          required: false
+        - label: "GDPR data impact assessed (if applicable)"
+          required: false

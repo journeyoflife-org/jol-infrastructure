@@ -1,0 +1,70 @@
+# Allow ALB ingress controller → app pods only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-ingress
+  namespace: jol-backend
+spec:
+  podSelector:
+    matchLabels:
+      app: jol-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-ingress
+  namespace: jol-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: jol-frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-ingress
+  namespace: jol-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: jol-commerce
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+      ports:
+        - protocol: TCP
+          port: 8000

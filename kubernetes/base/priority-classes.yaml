@@ -1,0 +1,24 @@
+# Priority Classes — ensure critical workloads are scheduled first
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: jol-critical
+value: 1000000
+globalDefault: false
+description: "Critical production workloads — backend, commerce"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: jol-standard
+value: 100000
+globalDefault: true
+description: "Standard workloads — frontend, analytics"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: jol-low
+value: 10000
+globalDefault: false
+description: "Low priority — batch jobs, cron jobs"

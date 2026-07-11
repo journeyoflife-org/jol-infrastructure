@@ -1,37 +1,88 @@
-# Local .terraform directories
-.terraform/
+# =============================================================================
+# .gitignore — jol-infrastructure
+# Blocks all sensitive files, state, and local artifacts from version control
+# =============================================================================
 
-# .tfstate files
+# --- Terraform ---
+.terraform/
 *.tfstate
 *.tfstate.*
-
-# Crash log files
+*.tfstate.backup
 crash.log
 crash.*.log
-
-# Exclude all .tfvars files, which are likely to contain sensitive data, such as
-# password, private keys, and other secrets. These should not be part of version 
-# control as they are data points which are potentially sensitive and subject 
-# to change depending on the environment.
 *.tfvars
 *.tfvars.json
-
-# Ignore override files as they are usually used to override resources locally and so
-# are not checked in
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-
-# Ignore transient lock info files created by terraform apply
 .terraform.tfstate.lock.info
-
-# Include override files you do wish to add to version control using negated pattern
-# !example_override.tf
-
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
-
-# Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Plan output files
+*.tfplan
+plan-output.txt
+plan-detail.txt
+
+# --- Certificates & Keys ---
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+kubeconfig
+kubeconfig.*
+
+# --- Secrets & Credentials ---
+*.secret
+*.credentials
+.env
+.env.*
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# --- Node ---
+node_modules/
+package-lock.json
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# --- Docker ---
+docker-compose.override.yml
+
+# --- Helm ---
+helm/charts/*/charts/
+helm/charts/*/*.tgz
+
+# --- Qodana ---
+qodana-results/
+.qodana/
+
+# --- SBOM / Audit artifacts ---
+sbom/
+soc2-evidence-*/
+
+# --- Terraform bootstrap backend template ---
+terraform/bootstrap/backend.tpl
