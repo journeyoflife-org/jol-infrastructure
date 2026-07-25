@@ -4,11 +4,11 @@
 minimum_severity: MEDIUM
 
 exclude:
-  # Documented exclusions with justification
-  # - aws-vpc-no-public-ingress-sgr: ALB requires public ingress on 443
+# Documented exclusions with justification
+# - aws-vpc-no-public-ingress-sgr: ALB requires public ingress on 443
 
-  # EKS endpoint access — prod is private-only, dev/staging allow public for developer access
-  # - aws-eks-no-public-cluster-access
+# EKS endpoint access — prod is private-only, dev/staging allow public for developer access
+# - aws-eks-no-public-cluster-access
 
 severity:
   default: MEDIUM

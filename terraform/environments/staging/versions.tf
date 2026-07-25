@@ -17,10 +17,6 @@ provider "aws" {
   region = var.aws_region
 
   default_tags {
-    tags = {
-      Project     = "jol"
-      Environment = "staging"
-      ManagedBy   = "terraform"
-    }
+    tags = local.common_tags
   }
 }

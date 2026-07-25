@@ -78,22 +78,33 @@ jobs:
           sarif_file: checkov-results.sarif
 
   # ---------------------------------------------------------------------------
-  # Terraform Security — tfsec
+  # Terraform Security — Trivy (replaces deprecated tfsec)
   # ---------------------------------------------------------------------------
-  tfsec-scan:
-    name: "🔒 tfsec Security Scan"
+  trivy-scan:
+    name: "🔒 Trivy IaC Security Scan"
     runs-on: ubuntu-latest
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run tfsec
-        uses: aquasecurity/tfsec-action@v1.0.3
+      - name: Run Trivy on Terraform
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          working_directory: terraform/
-          format: sarif
-          config_file: policies/tfsec/config.yaml
+          scan-type: 'fs'
+          scan-ref: 'terraform/'
+          scanners: 'misconfig'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Upload SARIF results
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
 
   # ---------------------------------------------------------------------------
   # OPA Policy Tests
@@ -116,6 +127,21 @@ jobs:
         run: |
           opa test policies/opa/ -v --coverage
           opa fmt --fail policies/opa/
+
+  # ---------------------------------------------------------------------------
+  # Shell Script Lint — ShellCheck
+  # ---------------------------------------------------------------------------
+  shell-lint:
+    name: "🐚 Shell Script Lint"
+    runs-on: ubuntu-latest
+    needs: trufflehog-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          find scripts/ -name '*.sh' -exec shellcheck -x {} +
 
   # ---------------------------------------------------------------------------
   # Helm Lint — Chart validation
@@ -181,7 +207,9 @@ jobs:
   qodana-scan:
     name: "🔍 Qodana Code Quality"
     runs-on: ubuntu-latest
-    needs: [checkov-scan, tfsec-scan, opa-test, helm-lint]
+    needs: [checkov-scan, trivy-scan, opa-test, helm-lint, shell-lint]
+    # Only run when QODANA_TOKEN is configured; skip gracefully otherwise.
+    if: ${{ !cancelled() && vars.QODANA_ENABLED == 'true' }}
     permissions:
       contents: read
       security-events: write

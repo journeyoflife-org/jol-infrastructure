@@ -6,7 +6,7 @@
 # =============================================================================
 
 locals {
-  environments = ["dev", "staging", "prod"]
+  environments = var.environments
   common_tags = {
     Project     = "jol-infrastructure"
     ManagedBy   = "terraform"
@@ -14,6 +14,8 @@ locals {
     Environment = "shared"
   }
 }
+
+data "aws_caller_identity" "current" {}
 
 # ---------------------------------------------------------------------------
 # KMS Key — used to encrypt Terraform state in S3
@@ -24,6 +26,21 @@ resource "aws_kms_key" "terraform_state" {
   description             = "KMS key for Terraform state encryption — ${each.value}"
   deletion_window_in_days = 30
   enable_key_rotation     = true # ISO 27001 A.8.7
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccountPermissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      }
+    ]
+  })
 
   tags = merge(local.common_tags, {
     Environment = each.value
@@ -62,6 +79,10 @@ resource "aws_s3_bucket" "terraform_state" {
   for_each = toset(local.environments)
 
   bucket = "jol-terraform-state-${each.value}"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = merge(local.common_tags, {
     Environment = each.value
@@ -216,6 +237,8 @@ resource "aws_dynamodb_table" "terraform_locks" {
   name         = "jol-terraform-locks-${each.value}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
+
+  deletion_protection_enabled = true
 
   attribute {
     name = "LockID"

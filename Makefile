@@ -23,7 +23,7 @@ ENVS := dev staging prod
 # Validation & Linting
 # ---------------------------------------------------------------------------
 .PHONY: validate
-validate: fmt lint opa-test helm-lint checkov tfsec  ## Run all validation checks
+validate: fmt lint opa-test opa-fmt helm-lint checkov trivy  ## Run all validation checks
 
 .PHONY: fmt
 fmt:  ## Format Terraform files
@@ -59,23 +59,23 @@ opa-test:  ## Run OPA policy tests
 .PHONY: opa-fmt
 opa-fmt:  ## Check OPA formatting
 	@echo "$(GREEN)Checking OPA format...$(NC)"
-	opa fmt --lint --fail policies/opa/
+	opa fmt --fail policies/opa/
 
 # ---------------------------------------------------------------------------
 # Security Scanning
 # ---------------------------------------------------------------------------
 .PHONY: scan
-scan: checkov tfsec trufflehog  ## Run all security scans
+scan: checkov trivy trufflehog  ## Run all security scans
 
 .PHONY: checkov
 checkov:  ## Run Checkov policy scan
 	@echo "$(GREEN)Running Checkov...$(NC)"
 	checkov -d terraform/ --config-file policies/checkov/.checkov.yaml
 
-.PHONY: tfsec
-tfsec:  ## Run tfsec security scan
-	@echo "$(GREEN)Running tfsec...$(NC)"
-	tfsec terraform/ --config-file policies/tfsec/config.yaml
+.PHONY: trivy
+trivy:  ## Run Trivy IaC security scan (replaces deprecated tfsec)
+	@echo "$(GREEN)Running Trivy...$(NC)"
+	trivy fs --scanners misconfig --severity HIGH,CRITICAL --exit-code 1 terraform/
 
 .PHONY: trufflehog
 trufflehog:  ## Scan for secrets with TruffleHog

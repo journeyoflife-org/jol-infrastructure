@@ -3,7 +3,7 @@
 # Reviewed quarterly as part of SOC 2 audit
 
 exclusions: []
-  # Example:
-  # - rule: aws-s3-encryption-customer-key
-  #   justification: "Using AWS-managed KMS keys per security team approval (JOL-123)"
-  #   expires: "2025-12-31"
+# Example:
+# - rule: aws-s3-encryption-customer-key
+#   justification: "Using AWS-managed KMS keys per security team approval (JOL-123)"
+#   expires: "2025-12-31"

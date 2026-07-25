@@ -109,10 +109,17 @@ jobs:
         run: |
           terraform apply -input=false -auto-approve
 
-      - name: Log apply to CHANGELOG
+      - name: Write apply audit log
         run: |
           echo "| $(date -u +%Y-%m-%dT%H:%M:%SZ) | ${{ github.actor }} | terraform apply ${{ github.event.inputs.environment }} | ${{ github.event.inputs.rollback_ticket }} |" \
-            >> CHANGELOG.md
+            > apply-audit-log.txt
+
+      - name: Upload apply audit log
+        uses: actions/upload-artifact@v4
+        with:
+          name: apply-audit-${{ github.event.inputs.environment }}-${{ github.run_id }}
+          path: apply-audit-log.txt
+          retention-days: 365
 
   # ---------------------------------------------------------------------------
   # Kubernetes Apply
