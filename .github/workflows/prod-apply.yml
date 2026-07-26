@@ -142,7 +142,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
 
       - name: Configure kubeconfig
         run: |
