@@ -102,6 +102,7 @@ resource "aws_security_group" "cluster" {
 
 resource "aws_security_group_rule" "cluster_egress" {
   type              = "egress"
+  description       = "Allow all outbound traffic from EKS cluster control plane"
   from_port         = 0
   to_port           = 0
   protocol          = "-1"
@@ -111,6 +112,7 @@ resource "aws_security_group_rule" "cluster_egress" {
 
 resource "aws_security_group_rule" "cluster_ingress_nodes" {
   type                     = "ingress"
+  description              = "Allow HTTPS ingress to EKS cluster API from worker nodes"
   from_port                = 443
   to_port                  = 443
   protocol                 = "tcp"

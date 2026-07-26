@@ -3,6 +3,19 @@
 
 extends: default
 
+# Exclude vendored, generated, and template directories.
+# Helm templates contain Go template directives ({{- }}) that are not valid YAML;
+# lint the rendered output via `helm template | yamllint` instead.
+ignore: |
+  .venv/
+  .terraform/
+  terraform/.external_modules/
+  terraform/environments/*/.terraform/
+  terraform/bootstrap/.terraform/
+  helm/charts/*/templates/
+  helm/charts/*/charts/
+  node_modules/
+
 rules:
   line-length:
     max: 200

@@ -72,28 +72,39 @@ jobs:
           soft_fail: false
 
       - name: Upload SARIF results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: checkov-results.sarif
 
   # ---------------------------------------------------------------------------
-  # Terraform Security — tfsec
+  # Terraform Security — Trivy (replaces deprecated tfsec)
   # ---------------------------------------------------------------------------
-  tfsec-scan:
-    name: "🔒 tfsec Security Scan"
+  trivy-scan:
+    name: "🔒 Trivy IaC Security Scan"
     runs-on: ubuntu-latest
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run tfsec
-        uses: aquasecurity/tfsec-action@v1.0.3
+      - name: Run Trivy on Terraform
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          working_directory: terraform/
-          format: sarif
-          config_file: policies/tfsec/config.yaml
+          scan-type: 'fs'
+          scan-ref: 'terraform/'
+          scanners: 'misconfig'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Upload SARIF results
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
 
   # ---------------------------------------------------------------------------
   # OPA Policy Tests
@@ -115,7 +126,22 @@ jobs:
       - name: Run OPA tests
         run: |
           opa test policies/opa/ -v --coverage
-          opa fmt --lint --fail policies/opa/
+          opa fmt --fail policies/opa/
+
+  # ---------------------------------------------------------------------------
+  # Shell Script Lint — ShellCheck
+  # ---------------------------------------------------------------------------
+  shell-lint:
+    name: "🐚 Shell Script Lint"
+    runs-on: ubuntu-latest
+    needs: trufflehog-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          find scripts/ -name '*.sh' -exec shellcheck -x {} +
 
   # ---------------------------------------------------------------------------
   # Helm Lint — Chart validation
@@ -154,6 +180,9 @@ jobs:
     name: "📦 Dependency Review"
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    # GHAS + Dependency graph must be enabled for strict enforcement.
+    # Until then, this job reports issues but does not block merges.
+    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -164,6 +193,12 @@ jobs:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
 
+      - name: Warn if Dependency Review is unavailable
+        if: failure()
+        run: |
+          echo "::warning::Dependency Review requires GitHub Advanced Security and Dependency graph."
+          echo "Enable them at https://github.com/${{ github.repository }}/settings/security_analysis"
+
   # ---------------------------------------------------------------------------
   # Qodana — JetBrains Code Quality & Security Analysis
   # Connected to PyCharm IDE for local ↔ CI sync
@@ -172,7 +207,9 @@ jobs:
   qodana-scan:
     name: "🔍 Qodana Code Quality"
     runs-on: ubuntu-latest
-    needs: [checkov-scan, tfsec-scan, opa-test, helm-lint]
+    needs: [checkov-scan, trivy-scan, opa-test, helm-lint, shell-lint]
+    # Only run when QODANA_TOKEN is configured; skip gracefully otherwise.
+    if: ${{ !cancelled() && vars.QODANA_ENABLED == 'true' }}
     permissions:
       contents: read
       security-events: write

@@ -76,26 +76,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Init
+      - name: Determine AWS OIDC role
+        id: aws
+        env:
+          DEV_ROLE: ${{ secrets.AWS_ROLE_DEV }}
+          STAGING_ROLE: ${{ secrets.AWS_ROLE_STAGING }}
+          PROD_ROLE: ${{ secrets.AWS_ROLE_PROD }}
+        run: |
+          case "${{ matrix.environment }}" in
+            dev) echo "role=${DEV_ROLE}" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "role=${STAGING_ROLE}" >> "$GITHUB_OUTPUT" ;;
+            prod) echo "role=${PROD_ROLE}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.aws.outputs.role != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.aws.outputs.role }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init (full backend)
+        if: steps.aws.outputs.role != ''
         working-directory: terraform/environments/${{ matrix.environment }}
         run: terraform init -input=false
+
+      - name: Terraform Init (validation only)
+        if: steps.aws.outputs.role == ''
+        working-directory: terraform/environments/${{ matrix.environment }}
+        run: terraform init -backend=false -input=false
 
       - name: Terraform Validate
         working-directory: terraform/environments/${{ matrix.environment }}
         run: terraform validate
 
       - name: Terraform Plan
+        if: steps.aws.outputs.role != ''
         id: plan
         working-directory: terraform/environments/${{ matrix.environment }}
         run: |
@@ -103,6 +124,7 @@ jobs:
           terraform show -no-color tfplan > plan-detail.txt
 
       - name: Post Plan as PR Comment
+        if: steps.aws.outputs.role != ''
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: tf-plan-${{ matrix.environment }}
@@ -119,3 +141,18 @@ jobs:
             </details>
 
             > ⚠️ Review this plan carefully before approving. Production applies require manual `workflow_dispatch`.
+
+      - name: Post skipped-plan notice
+        if: steps.aws.outputs.role == ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: tf-plan-${{ matrix.environment }}
+          message: |
+            ## ⏭️ Terraform Plan — `${{ matrix.environment }}` skipped
+
+            AWS OIDC role secret (`AWS_ROLE_${{ matrix.environment }}`) is not configured, so only `terraform validate` was executed.
+
+            To enable real plans:
+            1. Create an IAM OIDC provider + role that trusts `repo:${{ github.repository }}`.
+            2. Add the role ARN to GitHub Secrets as `AWS_ROLE_${{ matrix.environment }}`.
+            3. Re-run this workflow.

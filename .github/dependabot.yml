@@ -45,3 +45,12 @@ updates:
       - "dependencies"
       - "terraform"
       - "production"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
