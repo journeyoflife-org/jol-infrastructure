@@ -4,27 +4,27 @@
 # =============================================================================
 
 # Global — all infrastructure changes require platform team review
-*                           @journeyoflife-org/platform-team
+*                                   @journeyoflife-org/devops
 
 # Terraform — core infrastructure
-/terraform/                 @journeyoflife-org/platform-team @journeyoflife-org/sre-team
-/terraform/environments/prod/ @journeyoflife-org/platform-team @journeyoflife-org/security-team
+/terraform/                         @journeyoflife-org/devops
+/terraform/environments/prod/       @journeyoflife-org/devops @journeyoflife-org/security
 
 # Kubernetes — cluster configuration
-/kubernetes/                @journeyoflife-org/platform-team
-/kubernetes/policies/       @journeyoflife-org/security-team
+/kubernetes/                        @journeyoflife-org/devops
+/kubernetes/policies/               @journeyoflife-org/security
 
 # Helm — application deployment
-/helm/                      @journeyoflife-org/platform-team @journeyoflife-org/dev-team
+/helm/                              @journeyoflife-org/devops @journeyoflife-org/backend
 
 # Policies — security and compliance
-/policies/                  @journeyoflife-org/security-team @journeyoflife-org/compliance
+/policies/                          @journeyoflife-org/security
 
 # CI/CD workflows
-/.github/workflows/         @journeyoflife-org/platform-team @journeyoflife-org/devops
+/.github/workflows/                 @journeyoflife-org/devops
 
 # Scripts — operational tooling
-/scripts/                   @journeyoflife-org/sre-team
+/scripts/                           @journeyoflife-org/devops
 
 # Documentation
-/docs/                      @journeyoflife-org/platform-team
+/docs/                              @journeyoflife-org/devops
