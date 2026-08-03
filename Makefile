@@ -183,26 +183,6 @@ check-tools:  ## Verify all required tools are installed
 	./scripts/utils/check-tools.sh
 
 # ---------------------------------------------------------------------------
-# RAG Service
-# ---------------------------------------------------------------------------
-.PHONY: lint-rag
-lint-rag:  ## Lint RAG Python code (ruff + mypy)
-	@echo "$(GREEN)Linting RAG service...$(NC)"
-	cd rag/src && python -m ruff check app/ workers/
-	cd rag/src && python -m mypy app/ --ignore-missing-imports
-
-.PHONY: test-rag
-test-rag:  ## Run RAG service tests (pytest)
-	@echo "$(GREEN)Running RAG tests...$(NC)"
-	cd rag && PYTHONPATH=src python -m pytest tests/ -v --tb=short
-
-.PHONY: scan-rag
-scan-rag:  ## Scan RAG Docker image for vulnerabilities (Trivy)
-	@echo "$(GREEN)Scanning RAG image...$(NC)"
-	cd rag && docker build -t jol-rag-scan ./src
-	trivy image --severity HIGH,CRITICAL --exit-code 1 jol-rag-scan
-
-# ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 .PHONY: help
