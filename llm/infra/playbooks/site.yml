@@ -1,0 +1,11 @@
+---
+# Main orchestration for the jol-llm platform.
+# Order matters: hardening before services; monitoring before backups.
+# Run: ansible-playbook playbooks/site.yml [-l llm-prod-lt01]
+
+- import_playbook: 01-os-hardening.yml
+- import_playbook: 02-podman-setup.yml
+- import_playbook: 03-ollama-deploy.yml
+- import_playbook: 04-reverse-proxy.yml
+- import_playbook: 05-monitoring.yml
+- import_playbook: 06-backup-configure.yml

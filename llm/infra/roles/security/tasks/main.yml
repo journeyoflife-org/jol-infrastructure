@@ -1,0 +1,50 @@
+---
+# security: Lynis, debsecan, AIDE, fail2ban, auditd.
+- name: Security tooling
+  ansible.builtin.apt:
+    name:
+      - lynis
+      - debsecan
+      - aide
+      - aide-common
+      - fail2ban
+      - auditd
+    state: present
+
+- name: fail2ban SSH jail
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.d/sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 5
+      bantime = 1800
+      findtime = 600
+  notify: restart fail2ban
+
+- name: Initialize AIDE baseline (first run only)
+  ansible.builtin.command:
+    cmd: aideinit --yes
+    creates: /var/lib/aide/aide.db
+
+- name: Daily AIDE diff cron
+  ansible.builtin.cron:
+    name: aide-daily-check
+    minute: "0"
+    hour: "5"
+    job: "/usr/bin/aide --check > /var/log/jol-audit/aide-check.log 2>&1"
+    user: root
+
+- name: Weekly compliance scans cron already staged by backup play; add Lynis profile
+  ansible.builtin.copy:
+    dest: /etc/lynis/custom.prf
+    owner: root
+    group: root
+    mode: "0640"
+    content: |
+      # JOL profile — align with docs/03-security/hardening-checklist.md
+      skip-test=AUTH-9286   # documented break-glass root console
+      ignore-path=/opt/jol/models   # model blobs, AIDE-covered

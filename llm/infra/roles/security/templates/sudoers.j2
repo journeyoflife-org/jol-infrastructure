@@ -1,0 +1,21 @@
+# /etc/sudoers.d/jol-llm — managed by Ansible (01-os-hardening.yml)
+# Keep in sync with docs/03-security/access-control-matrix.md
+
+Cmnd_Alias JOL_OPS = \
+    /usr/bin/systemctl restart ollama, \
+    /usr/bin/systemctl restart ollama-api-bridge, \
+    /usr/bin/systemctl restart caddy, \
+    /usr/bin/systemctl restart netdata, \
+    /usr/bin/systemctl reload caddy, \
+    /opt/jol/repos/jol-llm/scripts/maintenance/*
+
+Cmnd_Alias JOL_SEC = \
+    /opt/jol/repos/jol-llm/scripts/security/*, \
+    /usr/bin/aureport *, \
+    /usr/bin/ausearch *
+
+%platform-eng ALL=(root) NOPASSWD: JOL_OPS
+%security     ALL=(root) NOPASSWD: JOL_SEC
+
+Defaults logfile=/var/log/sudo.log
+Defaults log_input, log_output

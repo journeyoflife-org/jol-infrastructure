@@ -1,0 +1,72 @@
+---
+# Stage 5 — Monitoring: Netdata + custom Ollama exporter.
+- name: Monitoring
+  hosts: llm
+  become: true
+  vars_files:
+    - ../group_vars/all/vars.yml
+  roles:
+    - netdata
+  tasks:
+    - name: Install Ollama metrics exporter
+      ansible.builtin.copy:
+        src: ../../monitoring/exporters/ollama-metrics.py
+        dest: /opt/jol/monitoring/ollama-metrics.py
+        owner: root
+        group: root
+        mode: "0755"
+      notify: restart ollama-exporter
+
+    - name: Exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ollama-exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Ollama Prometheus-format metrics exporter
+          After=ollama.service
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/python3 /opt/jol/monitoring/ollama-metrics.py
+          Restart=on-failure
+          NoNewPrivileges=true
+          ProtectSystem=strict
+          ProtectHome=true
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - daemon reload
+        - restart ollama-exporter
+
+    - name: Deploy custom alert thresholds
+      ansible.builtin.copy:
+        src: ../../monitoring/netdata/health.d/ollama.conf
+        dest: /etc/netdata/health.d/ollama.conf
+        owner: root
+        group: netdata
+        mode: "0640"
+      notify: reload netdata
+
+    - name: Enable exporter + netdata
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - ollama-exporter
+        - netdata
+
+  handlers:
+    - name: daemon reload
+      ansible.builtin.systemd:
+        daemon_reload: true
+    - name: restart ollama-exporter
+      ansible.builtin.systemd_service:
+        name: ollama-exporter
+        state: restarted
+    - name: reload netdata
+      ansible.builtin.service:
+        name: netdata
+        state: restarted

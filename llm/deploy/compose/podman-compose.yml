@@ -1,0 +1,32 @@
+---
+# Development-only compose for the full stack on a workstation/VM.
+# NOT for production — production uses systemd units + Ansible.
+# Usage: podman-compose up   (requires podman >= 4.x)
+
+services:
+  ollama:
+    image: localhost/jol/ollama:latest
+    container_name: jol-ollama
+    network_mode: host
+    volumes:
+      - ./models-dev:/opt/jol/models:Z
+    environment:
+      OLLAMA_HOST: "127.0.0.1:11434"
+      OLLAMA_MODELS: "/opt/jol/models"
+      OLLAMA_KEEP_ALIVE: "10m"
+    mem_limit: 48g
+    cpus: 16
+    security_opt:
+      - no-new-privileges
+    restart: unless-stopped
+
+  caddy:
+    image: localhost/jol/caddy:latest
+    container_name: jol-caddy
+    network_mode: host
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - ./caddy/tls:/etc/caddy/tls:ro,Z
+    depends_on:
+      - ollama
+    restart: unless-stopped

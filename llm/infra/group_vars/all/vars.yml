@@ -1,0 +1,38 @@
+---
+# Public variables — no secrets here (secrets live in vault.yml).
+# Keep in sync with docs/01-architecture/network-topology.md.
+
+# --- Identity & paths ---
+ollama_user: ollama-svc
+bridge_user: bridge-svc
+netdata_user: netdata
+models_dir: /opt/jol/models
+repo_dir: /opt/jol/repos/jol-infrastructure
+audit_log_dir: /var/log/jol-audit
+
+# --- Network ---
+host_ip: 10.40.10.21
+api_port: 8443
+ollama_loopback: 127.0.0.1:11434
+bridge_loopback: 127.0.0.1:8901
+mgmt_jump_subnet: 10.90.0.0/24
+corp_client_subnets:
+  - 10.10.0.0/22
+  - 10.20.0.0/24
+internal_dns: 10.20.0.5
+internal_ntp: 10.20.0.6
+monitoring_collector: 10.20.0.10
+subuid_start: 200000
+
+# --- Supply chain pins ---
+# Ollama version deployed on production; binary arrives via air-gap kiosk.
+# sha256 MUST match the staged artifact; update together with version bumps.
+ollama_version: "0.6.6"
+ollama_sha256: "REPLACE_WITH_PINNED_SHA256_OF_STAGED_BINARY"
+
+caddy_staged: true   # production hosts use kiosk-provided .deb
+
+# --- Retention ---
+audit_retention_days: 90
+model_backup_dir: /mnt/backup/models
+audit_archive_dir: /mnt/backup/audit

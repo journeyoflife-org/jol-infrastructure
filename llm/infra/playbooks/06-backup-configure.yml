@@ -1,0 +1,67 @@
+---
+# Stage 6 — Backups, log rotation, scheduled maintenance.
+- name: Backup & retention configuration
+  hosts: llm
+  become: true
+  vars_files:
+    - ../group_vars/all/vars.yml
+  roles:
+    - backup
+  tasks:
+    - name: Backup mount point
+      ansible.builtin.file:
+        path: /mnt/backup
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy logrotate policy for audit logs
+      ansible.builtin.copy:
+        src: ../../config/logrotate/jol-audit
+        dest: /etc/logrotate.d/jol-audit
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Deploy log rotation timer + service
+      ansible.builtin.copy:
+        src: "../../deploy/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - logrotate-ollama.timer
+      notify: reload timers
+
+    - name: Install maintenance scripts (idempotent)
+      ansible.builtin.copy:
+        src: "../../scripts/maintenance/{{ item }}"
+        dest: "/opt/jol/scripts/maintenance/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - health-check.sh
+        - model-backup.sh
+        - config-backup.sh
+        - rotate-logs.sh
+
+    - name: Scheduled jobs (cron)
+      ansible.builtin.cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        job: "{{ item.job }}"
+        user: root
+      loop:
+        - { name: "model-backup", minute: "30", hour: "2", job: "/opt/jol/scripts/maintenance/model-backup.sh >> /var/log/jol-audit/maintenance.log 2>&1" }
+        - { name: "config-backup", minute: "0", hour: "3", job: "/opt/jol/scripts/maintenance/config-backup.sh >> /var/log/jol-audit/maintenance.log 2>&1" }
+        - { name: "weekly-lynis", minute: "0", hour: "4", job: "/usr/sbin/lynis audit system --quick --cronjob >> /var/log/jol-audit/lynis.log 2>&1" }
+        - { name: "weekly-debsecan", minute: "15", hour: "4", job: "/usr/bin/debsecan --suite noble --format report >> /var/log/jol-audit/debsecan.log 2>&1" }
+
+  handlers:
+    - name: reload timers
+      ansible.builtin.systemd:
+        daemon_reload: true

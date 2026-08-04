@@ -1,0 +1,13 @@
+# /etc/systemd/system/netdata.service.d/override.conf
+# Drop-in for the distro Netdata unit.
+
+[Service]
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+# Netdata only scrapes loopback endpoints on this host.
+IPAddressAllow=127.0.0.1
+IPAddressAllow=::1
+IPAddressDeny=any
+MemoryMax=1G

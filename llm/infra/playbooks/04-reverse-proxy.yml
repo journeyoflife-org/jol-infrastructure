@@ -1,0 +1,70 @@
+---
+# Stage 4 — Caddy reverse proxy with mTLS.
+- name: Reverse proxy (Caddy + mTLS)
+  hosts: llm
+  become: true
+  vars_files:
+    - ../group_vars/all/vars.yml
+    # vault.yml is auto-loaded from group_vars/all/ when present
+    # (encrypted form only — see vault.yml.example for the bootstrap flow)
+  roles:
+    - caddy
+  tasks:
+    - name: TLS material directory
+      ansible.builtin.file:
+        path: /etc/caddy/tls
+        state: directory
+        owner: root
+        group: caddy
+        mode: "0750"
+
+    - name: TLS material present (server cert, key, client CA)
+      ansible.builtin.stat:
+        path: "/etc/caddy/tls/{{ item }}"
+      register: tls_files
+      loop:
+        - llm-prod-lt01.crt
+        - llm-prod-lt01.key
+        - ca.crt
+      failed_when: false
+
+    - name: Fail fast if TLS material missing
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: >-
+          Missing /etc/caddy/tls/{{ item.item }} — generate per
+          deploy/caddy/tls/README.md before running this playbook.
+        quiet: true
+      loop: "{{ tls_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Key material not group/world readable
+      ansible.builtin.file:
+        path: /etc/caddy/tls/llm-prod-lt01.key
+        owner: root
+        group: caddy
+        mode: "0640"
+
+    - name: Deploy Caddyfile
+      ansible.builtin.copy:
+        src: ../../deploy/caddy/Caddyfile
+        dest: /etc/caddy/Caddyfile
+        owner: root
+        group: caddy
+        mode: "0640"
+      notify: reload caddy
+
+    - name: Enable and start Caddy
+      ansible.builtin.systemd_service:
+        name: caddy
+        enabled: true
+        state: started
+
+  handlers:
+    - name: reload caddy
+      ansible.builtin.systemd_service:
+        name: caddy
+        state: reloaded
+      failed_when: false

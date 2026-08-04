@@ -1,0 +1,26 @@
+# Quadlet: Netdata agent in rootless Podman (optional; distro package is
+# the default). Kept for hosts where packaging is not allowed.
+
+[Unit]
+Description=Netdata monitoring agent (rootless container)
+After=network-online.target
+
+[Container]
+ContainerName=netdata
+Image=localhost/jol/netdata:latest
+Network=host
+CapDrop=ALL
+SecurityLabelDisable=true
+Volume=/proc:/host/proc:ro
+Volume=/sys:/host/sys:ro
+Volume=netdata-etc:/etc/netdata
+Volume=netdata-var:/var/lib/netdata
+Environment=PGID=999
+PodmanArgs=--memory=1g
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

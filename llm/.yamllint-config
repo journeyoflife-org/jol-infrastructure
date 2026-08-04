@@ -1,0 +1,15 @@
+# yamllint configuration for the llm/ (Ansible) tree.
+---
+extends: default
+
+rules:
+  line-length:
+    max: 140
+    level: warning
+  truthy:
+    check-keys: false
+  document-start:
+    present: false
+  indentation:
+    spaces: 2
+    indent-sequences: consistent

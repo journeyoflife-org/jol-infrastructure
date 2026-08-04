@@ -1,0 +1,10 @@
+[Unit]
+Description=JOL audit log rotation service (run by logrotate-ollama.timer)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/jol/scripts/maintenance/rotate-logs.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=false

@@ -1,0 +1,27 @@
+# Quadlet: OAuth2-Proxy sidecar for browser-based internal UIs.
+# Only deployed when a UI consumer is onboarded (docs/06-api/authentication.md).
+
+[Unit]
+Description=OAuth2 Proxy (internal IdP, browser flows only)
+After=network-online.target
+
+[Container]
+ContainerName=oauth2-proxy
+Image=localhost/jol/oauth2-proxy:latest
+Network=host
+Environment=OAUTH2_PROXY_PROVIDER=oidc
+Environment=OAUTH2_PROXY_OIDC_ISSUER_URL=https://idp.jol.internal
+Environment=OAUTH2_PROXY_UPSTREAMS=http://127.0.0.1:8443
+Environment=OAUTH2_PROXY_HTTP_ADDRESS=127.0.0.1:9090
+Environment=OAUTH2_PROXY_COOKIE_SECURE=true
+Environment=OAUTH2_PROXY_EMAIL_DOMAINS=jol.internal
+# Client secret injected from vault-backed env file at deploy time:
+EnvironmentFile=/etc/jol/oauth2-proxy.env
+PodmanArgs=--memory=256m --security-opt=no-new-privileges
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

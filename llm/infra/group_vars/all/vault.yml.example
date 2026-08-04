@@ -1,0 +1,25 @@
+---
+# Bootstrap TEMPLATE for the encrypted vault — never put real values here.
+#
+# Usage on first deployment:
+#   cp llm/infra/group_vars/all/vault.yml.example llm/infra/group_vars/all/vault.yml
+#   # edit vault.yml, fill in real values, then:
+#   ansible-vault encrypt llm/infra/group_vars/all/vault.yml
+#   git add llm/infra/group_vars/all/vault.yml   # commits the ENCRYPTED form
+#
+# The real vault.yml is auto-loaded by Ansible from group_vars/all/ and is
+# tracked by git ONLY in encrypted form ($ANSIBLE_VAULT header). The
+# pre-commit hook rejects any unencrypted vault.yml. See
+# docs/03-security/access-control-matrix.md for secret ownership.
+
+vault_bridge_key_salt: "REPLACE_WITH_32_HEX_BYTES"
+vault_api_keys: {}
+# Example structure (never commit real values):
+# vault_api_keys:
+#   team-x:
+#     hash: "<salted sha256>"
+#     issued: "2026-08-04"
+#     expires: "2026-11-02"
+
+vault_ca_key_passphrase: "REPLACE_ME"
+vault_restic_password: "REPLACE_ME"

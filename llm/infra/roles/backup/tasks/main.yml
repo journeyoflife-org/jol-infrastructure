@@ -1,0 +1,38 @@
+---
+# backup: rsync to local HDD + audit log archival.
+- name: Backup directories on HDD
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - /mnt/backup/models
+    - /mnt/backup/audit
+    - /mnt/backup/config
+
+- name: Audit log directory
+  ansible.builtin.file:
+    path: /var/log/jol-audit
+    state: directory
+    owner: "{{ bridge_user | default('bridge-svc') }}"
+    group: "{{ bridge_user | default('bridge-svc') }}"
+    mode: "0700"
+
+- name: fstab entry for backup HDD (by-UUID expected; placeholder label)
+  ansible.posix.mount:
+    path: /mnt/backup
+    src: "LABEL=JOLBACKUP"
+    fstype: ext4
+    opts: noatime,nofail
+    state: mounted
+  failed_when: false   # absent during initial bootstrap; disk labelled later
+
+- name: Restic repository directory (encrypted backups)
+  ansible.builtin.file:
+    path: /mnt/backup/restic-repo
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"

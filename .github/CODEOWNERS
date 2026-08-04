@@ -28,3 +28,10 @@
 
 # Documentation
 /docs/                              @journeyoflife-org/devops
+
+# Bare-metal LLM host (llm-prod-lt01) — migrated from jol-llm/infra
+/llm/                               @journeyoflife-org/devops
+/llm/infra/                         @journeyoflife-org/devops @journeyoflife-org/security
+/llm/config/                        @journeyoflife-org/devops @journeyoflife-org/security
+/llm/deploy/                        @journeyoflife-org/devops @journeyoflife-org/security
+/llm/scripts/security/              @journeyoflife-org/security

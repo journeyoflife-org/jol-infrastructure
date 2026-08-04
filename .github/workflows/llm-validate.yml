@@ -1,0 +1,55 @@
+---
+name: llm-validate
+on:
+  pull_request:
+    paths:
+      - "llm/**"
+      - ".github/workflows/llm-validate.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "llm/**"
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck (llm scripts)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run shellcheck
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(find llm/scripts llm/monitoring -type f -name '*.sh')
+          printf '%s\n' "${scripts[@]}"
+          # -S style; SC1090/SC1091 disabled (dynamic sources documented in headers)
+          shellcheck -s bash -S style -e SC1090,SC1091 "${scripts[@]}"
+
+  yamllint:
+    name: yamllint (llm ansible)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pipx install yamllint
+      - name: Run yamllint
+        run: yamllint -c llm/.yamllint-config llm/infra/
+
+  ansible-syntax:
+    name: Ansible syntax check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ansible-core
+        run: pipx install ansible-core
+      - name: Syntax check site playbook
+        working-directory: llm/infra
+        run: |
+          ANSIBLE_CONFIG=ansible.cfg \
+            ansible-playbook --syntax-check -i inventory/production.ini \
+            playbooks/site.yml

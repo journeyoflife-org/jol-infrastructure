@@ -1,0 +1,27 @@
+# /etc/logrotate.d/jol-audit — metadata-only audit logs (90-day retention)
+# Companion: deploy/systemd/logrotate-ollama.timer + scripts/maintenance/rotate-logs.sh
+# Policy: docs/03-security/data-retention-policy.md
+
+/var/log/jol-audit/bridge.log
+/var/log/jol-audit/maintenance.log
+/var/log/jol-audit/lynis.log
+/var/log/jol-audit/debsecan.log
+/var/log/jol-audit/aide-check.log
+{
+    daily
+    rotate 90
+    maxage 90
+    compress
+    delaycompress
+    missingok
+    notifempty
+    dateext
+    dateformat -%Y%m%d
+    create 0600 bridge-svc bridge-svc
+    sharedscripts
+    postrotate
+        # Archival to HDD happens in rotate-logs.sh (integrity-checked);
+        # this hook only signals the bridge to reopen its log file.
+        systemctl kill -s HUP ollama-api-bridge 2>/dev/null || true
+    endscript
+}

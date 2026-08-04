@@ -12,6 +12,7 @@ This repository defines the complete infrastructure-as-code for the JOL platform
 - **Helm** — Application deployment charts for all microservices
 - **Policies** — OPA, Checkov, tfsec rules for compliance enforcement
 - **CI/CD** — GitHub Actions workflows with SOC 2 change management controls
+- **LLM host** — `llm/`: Ansible/systemd/Caddy stack for the air-gapped bare-metal LLM platform (llm-prod-lt01); see `llm/README.md`
 
 ## Architecture
 
@@ -54,6 +55,7 @@ jol-infrastructure/
 ├── helm/              # Helm charts + environment values
 ├── policies/          # OPA, Checkov, tfsec policy-as-code
 ├── scripts/           # Bootstrap, maintenance, audit, utilities
+├── llm/               # Bare-metal LLM host: Ansible, systemd, Caddy, monitoring
 └── docs/              # ADRs, architecture, runbooks, dev setup
 ```
 

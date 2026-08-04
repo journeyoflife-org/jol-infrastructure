@@ -1,0 +1,74 @@
+---
+# ollama: verified install of the kiosk-provided binary + service user.
+# The binary is NEVER downloaded by Ansible (air-gap): it must be staged
+# at /opt/jol/staging/ollama-linux-amd64 by the air-gap procedure.
+
+- name: Ollama service user (shell-locked)
+  ansible.builtin.user:
+    name: "{{ ollama_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /opt/jol/ollama-home
+    create_home: true
+
+- name: Staging directory for air-gapped artifacts
+  ansible.builtin.file:
+    path: /opt/jol/staging
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check staged binary exists
+  ansible.builtin.stat:
+    path: /opt/jol/staging/ollama-linux-amd64
+  register: staged
+
+- name: Fail if no staged binary (air-gap rule)
+  ansible.builtin.assert:
+    that:
+      - staged.stat.exists
+    fail_msg: >-
+      No staged Ollama binary at /opt/jol/staging/ollama-linux-amd64.
+      Import it via docs/02-deployment/air-gap-procedure.md first.
+    quiet: true
+
+- name: Verify staged binary checksum before install
+  ansible.builtin.stat:
+    path: /opt/jol/staging/ollama-linux-amd64
+    checksum_algorithm: sha256
+  register: staged_stat
+
+- name: Assert staged checksum matches pinned version
+  ansible.builtin.assert:
+    that:
+      - staged_stat.stat.checksum == ollama_sha256
+    fail_msg: "Staged Ollama binary checksum mismatch — aborting."
+    quiet: true
+
+- name: Install binary
+  ansible.builtin.copy:
+    src: /opt/jol/staging/ollama-linux-amd64
+    dest: /usr/local/bin/ollama
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  notify: restart ollama
+
+- name: Release archive for rollback
+  ansible.builtin.copy:
+    src: /opt/jol/staging/ollama-linux-amd64
+    dest: "/opt/jol/releases/ollama-{{ ollama_version }}"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+
+- name: State directory (last-known-good pointer)
+  ansible.builtin.file:
+    path: /opt/jol/state
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"

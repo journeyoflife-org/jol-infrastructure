@@ -1,0 +1,15 @@
+# Companion timer: daily audit-log rotation + HDD archival.
+# Service wrapper executes scripts/maintenance/rotate-logs.sh.
+
+[Unit]
+Description=Daily rotation of JOL audit logs (metadata only)
+Documentation=file:///opt/jol/repos/jol-llm/docs/04-operations/runbooks/log-rotation.md
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+RandomizedDelaySec=120
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

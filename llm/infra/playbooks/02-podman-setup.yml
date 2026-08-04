@@ -1,0 +1,58 @@
+---
+# Stage 2 — Rootless Podman for sidecar containers (oauth2-proxy, netdata).
+- name: Podman rootless setup
+  hosts: llm
+  become: true
+  vars_files:
+    - ../group_vars/all/vars.yml
+  tasks:
+    - name: Install Podman stack
+      ansible.builtin.apt:
+        name:
+          - podman
+          - slirp4netns
+          - uidmap
+          - podman-compose
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure subuid/subgid ranges for service users
+      ansible.builtin.lineinfile:
+        path: "{{ item.file }}"
+        line: "{{ item.user }}:{{ subuid_start }}:65536"
+        state: present
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - { file: /etc/subuid, user: "{{ netdata_user }}" }
+        - { file: /etc/subgid, user: "{{ netdata_user }}" }
+
+    - name: Quadlet directory for rootless containers
+      ansible.builtin.file:
+        path: "/home/{{ netdata_user }}/.config/containers/systemd"
+        state: directory
+        owner: "{{ netdata_user }}"
+        group: "{{ netdata_user }}"
+        mode: "0755"
+
+    - name: Deploy Quadlet definitions
+      ansible.builtin.copy:
+        src: "../../deploy/podman/{{ item }}"
+        dest: "/home/{{ netdata_user }}/.config/containers/systemd/{{ item }}"
+        owner: "{{ netdata_user }}"
+        group: "{{ netdata_user }}"
+        mode: "0644"
+      loop:
+        - netdata.container
+        - oauth2-proxy.container
+      notify: reload user systemd
+
+  handlers:
+    - name: reload user systemd
+      ansible.builtin.command:
+        cmd: "systemctl --user --machine={{ netdata_user }}@ daemon-reload"
+      changed_when: true
+      failed_when: false

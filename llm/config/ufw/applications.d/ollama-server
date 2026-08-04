@@ -1,0 +1,7 @@
+# UFW application profile — installed to /etc/ufw/applications.d/ollama-server
+# Referenced by infra/playbooks/01-os-hardening.yml
+
+[OLLAMA-LLM-API]
+title=JOL LLM API (Caddy mTLS gateway)
+description=OpenAI-compatible LLM inference API (mTLS + API key)
+ports=8443/tcp

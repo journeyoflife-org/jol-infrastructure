@@ -1,0 +1,38 @@
+---
+# netdata: agent install tuned for an inference host.
+- name: Install Netdata
+  ansible.builtin.apt:
+    name: netdata
+    state: present
+
+- name: Bind agent to local interface only
+  ansible.builtin.copy:
+    dest: /etc/netdata/netdata.conf.d/bind.conf
+    owner: root
+    group: netdata
+    mode: "0640"
+    content: |
+      [web]
+        bind to = 127.0.0.1
+  notify: restart netdata
+
+- name: Prometheus source for the Ollama exporter
+  ansible.builtin.copy:
+    dest: /etc/netdata/go.d/prometheus.conf
+    owner: root
+    group: netdata
+    mode: "0640"
+    content: |
+      jobs:
+        - name: ollama-exporter
+          url: http://127.0.0.1:9101/metrics
+          update_every: 10
+  notify: restart netdata
+
+- name: Charts dir for custom charts
+  ansible.builtin.file:
+    path: /etc/netdata/charts.d
+    state: directory
+    owner: root
+    group: netdata
+    mode: "0750"

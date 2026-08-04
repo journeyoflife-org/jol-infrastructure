@@ -1,0 +1,59 @@
+# /etc/systemd/system/ollama.service — hardened unit (jol-llm)
+# Source of truth: deploy/systemd/ollama.service in the jol-llm repository.
+# Verify after changes: systemd-analyze verify ollama.service
+
+[Unit]
+Description=Ollama LLM runtime (JOL hardened, CPU inference)
+Documentation=https://git.jol.internal/jol/jol-llm
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=ollama-svc
+Group=ollama-svc
+EnvironmentFile=/etc/jol/ollama-environment
+ExecStart=/usr/local/bin/ollama serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+
+# --- Hardening (see docs/03-security/hardening-checklist.md) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false            # keep /dev access for potential GPU nodes
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+LimitCORE=0                     # no crash dumps: prompt content must not hit disk
+LimitNOFILE=65536
+
+# --- Filesystem scope ---
+ReadWritePaths=/opt/jol/models
+ReadOnlyPaths=/opt/jol/repos/jol-llm
+PrivateMounts=true
+
+# --- Resource governance (capacity-planning.md) ---
+MemoryMax=80G
+TasksMax=512
+CPUWeight=100
+IOWeight=100
+
+[Install]
+WantedBy=multi-user.target

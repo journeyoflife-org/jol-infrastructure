@@ -1,0 +1,27 @@
+# Ollama environment — installed to /etc/jol/ollama-environment
+# Source of truth: config/ollama/environment in jol-llm.
+
+# Bind loopback only — external access exclusively via Caddy + bridge.
+OLLAMA_HOST=127.0.0.1:11434
+
+# Canonical model store (AIDE-monitored, SHA256-pinned artifacts).
+OLLAMA_MODELS=/opt/jol/models
+
+# Single slot: 96 GB RAM budget + bandwidth-bound CPU inference.
+OLLAMA_NUM_PARALLEL=1
+OLLAMA_MAX_LOADED_MODELS=1
+
+# Keep the resident model warm for 30 minutes after last request.
+OLLAMA_KEEP_ALIVE=30m
+
+# Context window cap (KV cache budget ~4 GiB at 8k).
+OLLAMA_CONTEXT_LENGTH=8192
+
+# No cross-origin browser access; API is for server-side clients only.
+OLLAMA_ORIGINS=http://127.0.0.1:8901
+
+# CPU inference: GGML threads = physical cores.
+OLLAMA_NUM_THREADS=16
+
+# Disable any telemetry/phone-home behaviour explicitly.
+OLLAMA_NO_TELEMETRY=1

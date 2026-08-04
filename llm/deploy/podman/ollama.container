@@ -1,0 +1,26 @@
+# Quadlet: Ollama containerized profile (rootless) — optional deployment
+# variant for staging/DR drills. Production runs the systemd-native unit.
+# Docs: docs/01-architecture/system-overview.md
+
+[Unit]
+Description=Ollama (rootless Podman, staging variant)
+After=local-fs.target
+
+[Container]
+ContainerName=ollama
+Image=localhost/jol/ollama:latest
+Network=host
+Volume=/opt/jol/models:/opt/jol/models:Z
+Volume=/etc/jol/ollama-environment:/etc/ollama/env:ro,Z
+Environment=OLLAMA_HOST=127.0.0.1:11434
+Environment=OLLAMA_MODELS=/opt/jol/models
+# Resource caps mirror deploy/systemd/ollama.service
+PodmanArgs=--memory=80g --cpus=32 --security-opt=no-new-privileges
+PublishPort=127.0.0.1:11434:11434
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

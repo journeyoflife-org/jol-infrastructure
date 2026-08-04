@@ -1,0 +1,79 @@
+---
+# Stage 3 — Ollama deployment (verified binary, hardened unit).
+- name: Ollama deployment
+  hosts: llm
+  become: true
+  vars_files:
+    - ../group_vars/all/vars.yml
+    # vault.yml is auto-loaded from group_vars/all/ when present
+    # (encrypted form only — see vault.yml.example for the bootstrap flow)
+  roles:
+    - ollama
+  tasks:
+    - name: Verify installed Ollama binary checksum
+      ansible.builtin.stat:
+        path: /usr/local/bin/ollama
+        checksum_algorithm: sha256
+      register: ollama_bin
+
+    - name: Assert binary matches pinned checksum
+      ansible.builtin.assert:
+        that:
+          - ollama_bin.stat.checksum == ollama_sha256
+        fail_msg: >-
+          Ollama binary checksum mismatch — possible supply-chain issue.
+          Stop and follow docs/02-deployment/air-gap-procedure.md.
+        quiet: true
+
+    - name: Model store directory
+      ansible.builtin.file:
+        path: "{{ models_dir }}"
+        state: directory
+        owner: "{{ ollama_user }}"
+        group: "{{ ollama_user }}"
+        mode: "0750"
+
+    - name: Deploy environment file
+      ansible.builtin.copy:
+        src: ../../config/ollama/environment
+        dest: /etc/jol/ollama-environment
+        owner: root
+        group: "{{ ollama_user }}"
+        mode: "0640"
+
+    - name: Deploy hardened systemd unit
+      ansible.builtin.copy:
+        src: ../../deploy/systemd/ollama.service
+        dest: /etc/systemd/system/ollama.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - daemon reload
+        - restart ollama
+
+    - name: Deploy Modelfiles
+      ansible.builtin.copy:
+        src: "../../config/ollama/modelfiles/{{ item }}"
+        dest: "{{ models_dir }}/modelfiles/{{ item }}"
+        owner: "{{ ollama_user }}"
+        group: "{{ ollama_user }}"
+        mode: "0640"
+      loop:
+        - qwen3-32b-q8.Modelfile
+        - qwen3-235b-q4.Modelfile
+
+    - name: Enable and start Ollama
+      ansible.builtin.systemd_service:
+        name: ollama
+        enabled: true
+        state: started
+
+  handlers:
+    - name: daemon reload
+      ansible.builtin.systemd:
+        daemon_reload: true
+    - name: restart ollama
+      ansible.builtin.systemd_service:
+        name: ollama
+        state: restarted

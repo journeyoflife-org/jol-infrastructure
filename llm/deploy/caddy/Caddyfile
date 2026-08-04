@@ -1,0 +1,56 @@
+# /etc/caddy/Caddyfile — jol-llm API gateway (mTLS)
+# Source of truth: deploy/caddy/Caddyfile in the jol-llm repository.
+
+{
+	# No ACME / no external contact — air-gapped host
+	auto_https off
+	admin off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+https://10.40.10.21:8443 {
+	# TLS with client certificate requirement (mTLS)
+	tls /etc/caddy/tls/llm-prod-lt01.crt /etc/caddy/tls/llm-prod-lt01.key {
+		client_auth {
+			root_ca_pool /etc/caddy/tls/ca.crt
+			mode require_and_verify
+		}
+	}
+
+	# Access log: metadata only — Caddy never logs request bodies.
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 100MiB
+			roll_keep 30
+			roll_keep_for 720h
+		}
+		format json
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# Liveness probe (mTLS still required)
+	@health path /healthz
+	handle @health {
+		reverse_proxy 127.0.0.1:8901
+	}
+
+	# Everything else → auth bridge (loopback)
+	handle {
+		reverse_proxy 127.0.0.1:8901 {
+			header_up X-Forwarded-Client-Cert "{tls_client_certificate_sha256}"
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	encode off   # streaming SSE must not be buffered/compressed
+}

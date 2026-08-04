@@ -1,0 +1,47 @@
+# /etc/systemd/system/ollama-api-bridge.service
+# FastAPI auth bridge: mTLS-aware reverse layer in front of Ollama.
+# App lives at /opt/jol/apps/ollama-api-bridge (separate deploy; see
+# docs/01-architecture/service-dependencies.md).
+
+[Unit]
+Description=JOL LLM API bridge (auth, rate limit, metadata-only audit)
+Documentation=https://git.jol.internal/jol/jol-llm/-/blob/main/docs/06-api/authentication.md
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=exec
+User=bridge-svc
+Group=bridge-svc
+WorkingDirectory=/opt/jol/apps/ollama-api-bridge
+ExecStart=/opt/jol/apps/ollama-api-bridge/venv/bin/uvicorn app:app \
+    --host 127.0.0.1 --port 8901 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+# --- Hardening ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+UMask=0077
+LimitCORE=0
+
+# --- Filesystem scope ---
+ReadOnlyPaths=/etc/jol/bridge/keys.db
+ReadWritePaths=/var/log/jol-audit
+
+[Install]
+WantedBy=multi-user.target

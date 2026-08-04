@@ -1,0 +1,110 @@
+---
+# Stage 1 — OS hardening baseline.
+# Evidence: docs/03-security/hardening-checklist.md
+- name: OS hardening
+  hosts: llm
+  become: true
+  vars_files:
+    - ../group_vars/all/vars.yml
+    # vault.yml is auto-loaded from group_vars/all/ when present
+    # (encrypted form only — see vault.yml.example for the bootstrap flow)
+  roles:
+    - common
+    - security
+  tasks:
+    - name: Install UFW application profile for the LLM stack
+      ansible.builtin.copy:
+        src: ../../config/ufw/applications.d/ollama-server
+        dest: /etc/ufw/applications.d/ollama-server
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Default deny inbound
+      community.general.ufw:
+        direction: incoming
+        default: deny
+
+    - name: Default deny outbound (air-gap enforcement)
+      community.general.ufw:
+        direction: outgoing
+        default: deny
+
+    - name: Allow SSH from jump host only
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        src: "{{ mgmt_jump_subnet }}"
+
+    - name: Allow LLM API from corp segments
+      community.general.ufw:
+        rule: allow
+        port: "8443"
+        proto: tcp
+        src: "{{ item }}"
+      loop: "{{ corp_client_subnets }}"
+
+    - name: Allow internal DNS and NTP egress
+      community.general.ufw:
+        rule: allow
+        direction: outgoing
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        dest: "{{ item.dest }}"
+      loop:
+        - { port: "53", proto: udp, dest: "{{ internal_dns }}" }
+        - { port: "123", proto: udp, dest: "{{ internal_ntp }}" }
+
+    - name: Allow loopback egress
+      community.general.ufw:
+        rule: allow
+        direction: outgoing
+        dest: "127.0.0.0/8"
+
+    - name: Allow established/related egress
+      ansible.builtin.command:
+        cmd: ufw allow out on lo
+        creates: /etc/ufw/user.rules
+      changed_when: false
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    - name: Install auditd rules for model store
+      ansible.builtin.copy:
+        src: ../../config/auditd/ollama.rules
+        dest: /etc/audit/rules.d/ollama.rules
+        owner: root
+        group: root
+        mode: "0640"
+      notify: reload auditd
+
+    - name: Install sysctl performance profile
+      ansible.builtin.copy:
+        src: ../../config/sysctl/99-llm-performance.conf
+        dest: /etc/sysctl.d/99-llm-performance.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload sysctl
+
+    - name: Install sudoers allowlist (validated)
+      ansible.builtin.template:
+        src: ../roles/security/templates/sudoers.j2
+        dest: /etc/sudoers.d/jol-llm
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s
+
+  handlers:
+    - name: reload auditd
+      ansible.builtin.service:
+        name: auditd
+        state: restarted
+    - name: reload sysctl
+      ansible.builtin.command:
+        cmd: sysctl --system
+      changed_when: true

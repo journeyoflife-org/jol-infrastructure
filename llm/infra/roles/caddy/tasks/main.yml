@@ -1,0 +1,35 @@
+---
+# caddy: package install + service user. TLS material and Caddyfile are
+# handled by the playbook (they need pre-flight assertions).
+- name: Install Caddy from Ubuntu repos or staged .deb (air-gap)
+  ansible.builtin.apt:
+    deb: /opt/jol/staging/caddy.deb
+  when: caddy_staged | default(false)
+
+- name: Install Caddy from Ubuntu repos (staging hosts with repo mirror only)
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+  when: not (caddy_staged | default(false))
+
+- name: Caddy config dir
+  ansible.builtin.file:
+    path: /etc/caddy
+    state: directory
+    owner: root
+    group: caddy
+    mode: "0750"
+
+- name: Capabilities — bind 8443 without root (non-privileged port anyway)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/caddy.service.d/override.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ReadWritePaths=/var/lib/caddy /var/log/caddy
+      LimitNOFILE=65536
+  notify: daemon reload caddy

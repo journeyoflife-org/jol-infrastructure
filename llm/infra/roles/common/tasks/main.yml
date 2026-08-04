@@ -1,0 +1,57 @@
+---
+# common: base packages, timezone, NTP, journald limits.
+- name: Base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+      - rsync
+      - smartmontools
+      - lm-sensors
+      - htop
+      - iotop
+      - unattended-upgrades
+      - needrestart
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Timezone UTC
+  community.general.timezone:
+    name: UTC
+
+- name: NTP via systemd-timesyncd to internal source
+  ansible.builtin.copy:
+    dest: /etc/systemd/timesyncd.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Time]
+      NTP={{ internal_ntp }}
+      FallbackNTP=
+      RootDistanceMaxSec=1
+  notify: restart timesyncd
+
+- name: journald size cap (avoid unbounded disk use)
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/size.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Journal]
+      SystemMaxUse=1G
+      MaxRetentionSec=30day
+  notify: restart journald
+
+- name: CPU governor performance (inference host)
+  ansible.builtin.copy:
+    dest: /etc/default/cpufrequtils
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      GOVERNOR="performance"
+  failed_when: false

@@ -1,0 +1,26 @@
+# /etc/audit/rules.d/ollama.rules — auditd rules for the model store
+# Evidence: docs/03-security/threat-model.md T2/T9, hardening checklist §5.
+# Load order: this file is lexicographically last on purpose (final rules).
+
+# --- Model store integrity (writes/attr changes = suspicious) ---
+-w /opt/jol/models -p wa -k jol_models_write
+-w /opt/jol/models/gguf -p wa -k jol_models_write
+
+# --- Binary supply chain ---
+-w /usr/local/bin/ollama -p wa -k jol_binary_change
+
+# --- Auth & key material access ---
+-w /etc/jol/bridge/keys.db -p rwa -k jol_keystore
+-w /etc/caddy/tls -p wa -k jol_tls_material
+
+# --- Audit trail self-protection ---
+-w /var/log/jol-audit -p wa -k jol_audit_log
+-w /etc/audit/ -p wa -k jol_audit_config
+
+# --- Privilege escalation paths relevant to this host ---
+-w /etc/sudoers -p wa -k jol_sudoers
+-w /etc/sudoers.d/ -p wa -k jol_sudoers
+
+# Make the audit configuration immutable until reboot (requires reboot to
+# change rules — intentional on a frozen production host).
+-e 2
