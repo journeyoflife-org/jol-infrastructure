@@ -1,0 +1,7 @@
+# =============================================================================
+# role: base_firewall — defaults
+# =============================================================================
+---
+# Docker published port to guard in DOCKER-USER (resolves to host var)
+docker_firewall_port: "{{ ufw_rag_api_port }}"
+docker_firewall_allow_sources: "{{ ufw_http_allowed_sources }}"

@@ -1,0 +1,37 @@
+# =============================================================================
+# role: backup_client — guest agent + app-level snapshot scheduling
+# VM-level backups: PBS via pve-prod-hv01 (RPO 24h / RTO 4h).
+# qemu-guest-agent enables fs-consistent snapshots (fixes "agent configured
+# but not running" warning observed in pre-rag-deploy snapshot).
+# =============================================================================
+---
+- name: Install QEMU guest agent
+  ansible.builtin.apt:
+    name: qemu-guest-agent
+    state: present
+
+- name: Enable and start qemu-guest-agent
+  ansible.builtin.systemd_service:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+
+- name: Ensure Promtail positions directory exists (staged component)
+  ansible.builtin.file:
+    path: /var/lib/promtail
+    state: directory
+    owner: promtail
+    group: promtail
+    mode: "0750"
+
+- name: Schedule nightly application-level vector DB snapshot
+  ansible.builtin.cron:
+    name: "jol-rag qdrant nightly snapshot"
+    user: "{{ jol_admin_user }}"
+    job: "{{ backup_qdrant_script }} > /var/log/jol-rag/backup-qdrant.log 2>&1 || true"
+    minute: "{{ backup_qdrant_schedule.split(' ')[0] }}"
+    hour: "{{ backup_qdrant_schedule.split(' ')[1] }}"
+    day: "{{ backup_qdrant_schedule.split(' ')[2] }}"
+    month: "{{ backup_qdrant_schedule.split(' ')[3] }}"
+    weekday: "{{ backup_qdrant_schedule.split(' ')[4] }}"
+  when: backup_enabled | default(false) | bool

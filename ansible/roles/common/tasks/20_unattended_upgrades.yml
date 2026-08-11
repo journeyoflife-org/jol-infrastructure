@@ -1,0 +1,20 @@
+# =============================================================================
+# 20_unattended_upgrades.yml — automatic security updates (CIS 1.9)
+# =============================================================================
+---
+- name: Enable automatic security updates policy
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+  notify: restart unattended-upgrades
+
+- name: Ensure unattended-upgrades service is enabled
+  ansible.builtin.systemd_service:
+    name: unattended-upgrades
+    enabled: true

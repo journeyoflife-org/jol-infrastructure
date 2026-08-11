@@ -1,0 +1,28 @@
+# =============================================================================
+# Promtail configuration — managed by Ansible (role: monitoring).
+# Staged until Loki endpoint is provisioned (promtail_enabled=false).
+# =============================================================================
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: {{ loki_push_url }}
+
+scrape_configs:
+  - job_name: jol-rag
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: jol-rag
+          host: {{ inventory_hostname }}
+          environment: {{ jol_environment | default('prod') }}
+          __path__: /var/log/jol-rag/*.log
+      - targets: [localhost]
+        labels:
+          job: syslog
+          host: {{ inventory_hostname }}
+          __path__: /var/log/syslog

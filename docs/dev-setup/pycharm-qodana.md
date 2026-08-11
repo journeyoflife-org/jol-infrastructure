@@ -45,3 +45,7 @@ It fails the pipeline on CRITICAL severity issues.
 1. Install "Qodana" plugin from Marketplace
 2. Tools → Qodana → Run Local Analysis
 3. Review findings in the Qodana tool window
+
+## See Also
+
+- [qoder-setup.md](qoder-setup.md) — Qoder agent configuration (index, rules, MCP, verification)

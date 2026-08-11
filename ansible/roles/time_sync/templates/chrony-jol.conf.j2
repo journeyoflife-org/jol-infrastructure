@@ -1,0 +1,8 @@
+# =============================================================================
+# JOL NTP sources — managed by Ansible (role: time_sync). Do not edit.
+# =============================================================================
+{% for server in time_sync_servers %}
+pool {{ server }} iburst maxsources 3
+{% endfor %}
+makestep 1.0 3
+rtcsync

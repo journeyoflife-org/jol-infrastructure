@@ -1,0 +1,11 @@
+# =============================================================================
+# role: base_firewall — handlers
+# =============================================================================
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: apply docker firewall
+  ansible.builtin.command: /usr/local/sbin/jol-docker-firewall.sh
+  changed_when: true

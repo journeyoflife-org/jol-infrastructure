@@ -1,0 +1,21 @@
+# =============================================================================
+# 50_aide.yml — AIDE file integrity baseline (ISO 27001 A.8.16)
+# Initial DB init runs once; nightly check cron produces the evidence trail.
+# =============================================================================
+---
+- name: Check for existing AIDE database
+  ansible.builtin.stat:
+    path: /var/lib/aide/aide.db
+  register: aide_db
+
+- name: Initialise AIDE database (first run only — full FS scan, several minutes)
+  ansible.builtin.command: aideinit --yes --force
+  when: not aide_db.stat.exists
+
+- name: Schedule nightly AIDE integrity check
+  ansible.builtin.cron:
+    name: "aide nightly integrity check"
+    user: root
+    minute: "15"
+    hour: "4"
+    job: "/usr/bin/aide.wrapper --check > /var/log/aide/aide-check-$(date +\\%F).log 2>&1 || true"

@@ -1,0 +1,38 @@
+# =============================================================================
+# harden-ai-hosts.yml
+# Baseline hardening playbook for AI service production hosts and the
+# LLM inference host. Applies roles in safe dependency order to RAG, MCP,
+# Hermes (ai_services) and llm-prod-lt01 (llm).
+#
+# Usage:
+#   cd ansible/
+#   ansible-playbook playbooks/harden-ai-hosts.yml --limit ai_services
+#   ansible-playbook playbooks/harden-ai-hosts.yml --limit llm
+#
+# SOC 2 CC8.1 — changes must be reviewed and merged before execution.
+# =============================================================================
+---
+- name: Baseline hardening for AI service and LLM production hosts
+  hosts: ai_services, llm
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common
+      tags: [common, baseline]
+
+    - role: time_sync
+      tags: [time_sync, baseline]
+
+    - role: ssh
+      tags: [ssh, hardening]
+
+    - role: base_firewall
+      tags: [firewall, hardening]
+
+    - role: monitoring
+      tags: [monitoring, observability]
+
+    - role: backup_client
+      tags: [backup, compliance]
+      when: backup_client_enabled | default(true) | bool

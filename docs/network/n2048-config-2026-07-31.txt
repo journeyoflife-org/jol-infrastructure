@@ -1,0 +1,394 @@
+COMMAND: show running-config
+!Current Configuration:
+!System Description "Dell EMC Networking N2048, 6.7.1.24, Linux 4.14.174, Not Available"
+!System Software Version 6.7.1.24
+!
+configure
+vlan 10,13-16,20,30,40,50,60,70,80,85,90
+exit
+vlan 10
+name "MGMT-CORE"
+exit
+vlan 20
+name "WORKSTATIONS"
+exit
+vlan 30
+name "LLM"
+exit
+vlan 40
+name "AI-SERVICES"
+exit
+vlan 50
+name "MARKETPLACE"
+exit
+vlan 60
+name "PROXMOX"
+exit
+vlan 70
+name "STORAGE-ISCSI"
+exit
+vlan 80
+name "HOME-IoT"
+exit
+vlan 85
+name "PBS-BACKUP"
+exit
+vlan 90
+name "OFFSITE-DR"
+exit
+hostname "Dell_EMC_Networking_N2048"
+slot 1/0 2    ! Dell EMC Networking N2048
+clock timezone 3 minutes 0
+stack
+member 1 3    ! N2048
+exit
+ip domain-name "Dell_EMC_Networking_N2048"
+ip http secure-port 8080
+ip http secure-server
+interface vlan 1
+ip address dhcp
+exit
+interface vlan 10
+ip address 10.10.10.2 255.255.255.0
+exit
+ip default-gateway 10.10.10.1
+username "admin" password 2f8ff1ebab1d1e6519c37c3256d81256 privilege 15 encrypted
+ip ssh server
+application install SupportAssist auto-restart start-on-boot
+!
+interface Gi1/0/1
+shutdown
+description "RESERVED-future-LAG-uplink"
+switchport mode trunk
+exit
+!
+interface Gi1/0/2
+description "WORKPC1-VLAN20"
+spanning-tree portfast
+switchport access vlan 20
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/3
+description "WORKPC2-VLAN20"
+spanning-tree portfast
+switchport access vlan 20
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/4
+description "LLM-llm01"
+spanning-tree portfast
+switchport access vlan 30
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/5
+description "PVE-PROD-HV01-Proxmox-mgmt"
+spanning-tree portfast
+switchport access vlan 60
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/6
+description "MARKET-market01"
+spanning-tree portfast
+switchport access vlan 50
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/7
+shutdown
+description "PARKED-pending-D4-decision"
+exit
+!
+interface Gi1/0/8
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/9
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/10
+description "R640-NODE1-mgmt-NIC"
+spanning-tree portfast
+switchport access vlan 60
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/11
+description "PROX01-R640-Node1-Proxmox"
+spanning-tree portfast
+switchport access vlan 60
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/12
+description "PROX02-R640-Node2-Proxmox"
+spanning-tree portfast
+switchport access vlan 60
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/13
+description "PROX03-R640-Node3-Proxmox"
+spanning-tree portfast
+switchport access vlan 60
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/14
+shutdown
+description "FUTURE-R740-1-Proxmox"
+exit
+!
+interface Gi1/0/15
+shutdown
+description "FUTURE-R740-2-Proxmox"
+exit
+!
+interface Gi1/0/16
+shutdown
+description "FUTURE-R740-3-Proxmox"
+exit
+!
+interface Gi1/0/17
+shutdown
+description "FUTURE-R740-PBS-backup"
+exit
+!
+interface Gi1/0/18
+shutdown
+description "FUTURE-R740-JOL-PBS"
+exit
+!
+interface Gi1/0/19
+description "HP-P4500-PBS-mgmt-NIC0"
+spanning-tree portfast
+switchport access vlan 10
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/20
+description "HP-P4500-PBS-mgmt-NIC1"
+spanning-tree portfast
+switchport access vlan 10
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/21
+description "HP-P4500-iSCSI-NIC1"
+spanning-tree portfast
+switchport access vlan 70
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/22
+description "HP-P4500-iSCSI-NIC2"
+spanning-tree portfast
+switchport access vlan 70
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/23
+description "R640-NODE1-iSCSI"
+spanning-tree portfast
+switchport access vlan 70
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/24
+description "R640-NODE2-iSCSI"
+spanning-tree portfast
+switchport access vlan 70
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/25
+description "R640-NODE3-iSCSI"
+spanning-tree portfast
+switchport access vlan 70
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/26
+shutdown
+description "FUTURE-R740-1-iSCSI"
+exit
+!
+interface Gi1/0/27
+shutdown
+description "FUTURE-R740-2-iSCSI"
+exit
+!
+interface Gi1/0/28
+shutdown
+description "FUTURE-R740-3-iSCSI"
+exit
+!
+interface Gi1/0/29
+description "HP-P4500-PBS-backup-replication"
+spanning-tree portfast
+switchport access vlan 85
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/30
+shutdown
+description "FUTURE-R740-JOL-offsite"
+exit
+!
+interface Gi1/0/31
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/32
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/33
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/34
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/35
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/36
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/37
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/38
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/39
+shutdown
+description "UNUSED"
+exit
+!
+interface Gi1/0/40
+description "IDRAC-PROX01-R640-Node1"
+spanning-tree portfast
+switchport access vlan 10
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/41
+description "IDRAC-PROX02-R640-Node2"
+spanning-tree portfast
+switchport access vlan 10
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/42
+description "IDRAC-PROX03-R640-Node3"
+spanning-tree portfast
+switchport access vlan 10
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/43
+shutdown
+description "FUTURE-IDRAC-R740-LT1"
+exit
+!
+interface Gi1/0/44
+shutdown
+description "FUTURE-IDRAC-R740-LV1"
+exit
+!
+interface Gi1/0/45
+shutdown
+description "FUTURE-IDRAC-R740-EE1"
+exit
+!
+interface Gi1/0/46
+shutdown
+description "FUTURE-IDRAC-PBS01"
+exit
+!
+interface Gi1/0/47
+description "ADMIN01-Ubuntu-workstation"
+spanning-tree portfast
+switchport access vlan 10
+switchport port-security
+switchport port-security maximum 1
+switchport port-security violation shutdown
+exit
+!
+interface Gi1/0/48
+description "MikroTik-RB5009-TRUNK-ALL-VLANs"
+spanning-tree portfast
+switchport mode trunk
+switchport trunk allowed vlan 10,20,30,40,50,60,70,85,90
+exit
+!
+interface Te1/0/2
+switchport mode trunk
+exit
+snmp-server engineid local 800002a203f8b15674fd23
+snmp-server community "REDACTED-rotated-2026-08-08-issue-26" rw  # original value rotated; never commit plaintext communities
+switchport port-security
+exit
+
+Dell_EMC_Networking_N2048

@@ -1,0 +1,18 @@
+# =============================================================================
+# JOL sshd hardening — managed by Ansible (role: ssh). Do not edit manually.
+# CIS Ubuntu 24.04 Level 1 (5.2.x) | ISO 27001 A.5.15 / A.8.5
+# =============================================================================
+Port {{ ssh_port }}
+PermitRootLogin {{ ssh_permit_root_login }}
+PasswordAuthentication {{ ssh_password_authentication }}
+KbdInteractiveAuthentication {{ ssh_challenge_response }}
+PermitEmptyPasswords no
+MaxAuthTries {{ ssh_max_auth_tries }}
+MaxSessions 4
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax {{ (ssh_idle_timeout / 300) | int }}
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+LogLevel VERBOSE

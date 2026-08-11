@@ -1,0 +1,34 @@
+# =============================================================================
+# role: common — baseline packages, kernel hardening, audit, directory layout
+# CIS Ubuntu 24.04 Level 1 (subset) | SOC 2 CC6.x / CC7.x / CC8.1
+# =============================================================================
+
+# --- Baseline tooling (spec-mandated) ---
+common_baseline_packages:
+  - curl
+  - git
+  - jq
+  - htop
+  - ncdu
+  - ufw
+  - fail2ban
+  - auditd
+  - aide
+  - unattended-upgrades
+  - unzip                # required by monitoring role (promtail zip release)
+
+# --- Kernel hardening (sysctl) ---
+common_sysctl_params:
+  fs.protected_hardlinks: 1
+  fs.protected_symlinks: 1
+  net.ipv4.conf.all.rp_filter: 1
+  kernel.kptr_restrict: 2
+  net.ipv4.tcp_syncookies: 1
+  kernel.yama.ptrace_scope: 1
+
+# --- Repos cloned into /opt/jol/repos (read-only references on the host) ---
+common_repo_clones:
+  - name: jol-infrastructure
+    repo: https://github.com/journeyoflife-org/jol-infrastructure.git
+  - name: jol-rag-server
+    repo: https://github.com/journeyoflife-org/jol-rag-server.git

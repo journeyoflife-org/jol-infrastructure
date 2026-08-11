@@ -1,0 +1,95 @@
+# =============================================================================
+# 60_layout.yml — service accounts + canonical directory structure
+#
+# The running Docker Compose stack (deployed 2026-08-03 at /opt/jol/rag) is
+# the live deployment. This task ADOPTS its paths via symlinks instead of
+# relocating data — zero downtime, zero data movement.
+#
+#   /var/lib/jol-rag/vector-db -> /var/lib/qdrant   (qdrant storage, uid 1000)
+#   /var/lib/jol-rag/uploads   -> /data/raw_docs    (ingestion corpus, ro)
+#   /var/lib/jol-rag/logs      -> /var/log/jol-rag  (application logs)
+#
+# Ownership of live directories is deliberately NOT modified: container
+# processes write with their own UIDs; chown here would break the stack.
+# =============================================================================
+---
+- name: Create dedicated service accounts (nologin, no home)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+  loop: "{{ jol_service_users }}"
+
+- name: Create repository root
+  ansible.builtin.file:
+    path: "{{ jol_repos_root }}"
+    state: directory
+    owner: "{{ jol_admin_user }}"
+    group: "{{ jol_admin_user }}"
+    mode: "0755"
+
+- name: Create encrypted secrets vault directory (root-only)
+  ansible.builtin.file:
+    path: "{{ jol_secrets_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create application state root
+  ansible.builtin.file:
+    path: "{{ jol_app_state_dir }}"
+    state: directory
+    owner: "{{ jol_app_state_owner | default('jol-rag') }}"
+    group: "{{ jol_app_state_owner | default('jol-rag') }}"
+    mode: "0750"
+
+- name: Stat live stack paths
+  ansible.builtin.stat:
+    path: "{{ item.target }}"
+  loop:
+    - { name: vector-db, target: /var/lib/qdrant }
+    - { name: uploads, target: /data/raw_docs }
+    - { name: logs, target: "{{ jol_app_log_dir }}" }
+  register: jol_layout_targets
+
+- name: Link canonical state dirs to live stack paths
+  ansible.builtin.file:
+    src: "{{ item.item.target }}"
+    dest: "{{ jol_app_state_dir }}/{{ item.item.name }}"
+    state: link
+  loop: "{{ jol_layout_targets.results }}"
+  loop_control:
+    label: "{{ item.item.name }} -> {{ item.item.target }}"
+  when: item.stat.exists
+
+- name: Ensure application log directory exists
+  ansible.builtin.file:
+    path: "{{ jol_app_log_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Clone reference repositories (read-only on host)
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    dest: "{{ jol_repos_root }}/{{ item.name }}"
+    version: main
+    depth: 1
+    force: false
+  loop: "{{ common_repo_clones }}"
+  register: jol_repo_clone
+  failed_when: false
+
+- name: Report repo clone results (audit trail)
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.item.name }}:
+      {{ 'cloned/updated at ' + (item.after | default('HEAD')) if item.rc == 0
+         else 'SKIPPED — repo is private / not accessible without credentials.
+         No long-lived tokens are stored on production hosts (zero-trust);
+         deployments use vault-injected credentials. Record in change log.' }}
+  loop: "{{ jol_repo_clone.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"

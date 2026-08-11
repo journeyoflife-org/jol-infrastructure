@@ -1,0 +1,31 @@
+# =============================================================================
+# role: common — task index (executed in order; audit-echo via ansible stdout)
+# =============================================================================
+---
+- name: Package baseline and upgrades
+  ansible.builtin.import_tasks: 00_packages.yml
+  tags: [common, packages]
+
+- name: Kernel hardening (sysctl)
+  ansible.builtin.import_tasks: 10_sysctl.yml
+  tags: [common, sysctl]
+
+- name: Automatic security updates
+  ansible.builtin.import_tasks: 20_unattended_upgrades.yml
+  tags: [common, updates]
+
+- name: Audit daemon rules
+  ansible.builtin.import_tasks: 30_auditd.yml
+  tags: [common, audit]
+
+- name: fail2ban baseline jail
+  ansible.builtin.import_tasks: 40_fail2ban.yml
+  tags: [common, fail2ban]
+
+- name: AIDE file integrity baseline
+  ansible.builtin.import_tasks: 50_aide.yml
+  tags: [common, aide]
+
+- name: Service accounts and directory layout
+  ansible.builtin.import_tasks: 60_layout.yml
+  tags: [common, layout]

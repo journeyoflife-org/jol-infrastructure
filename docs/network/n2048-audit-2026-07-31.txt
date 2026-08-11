@@ -1,0 +1,281 @@
+
+============================================================
+COMMAND: show running-config
+============================================================
+!Current Configuration:
+!System Description "Dell EMC Networking N2048, 6.7.1.24, Linux 4.14.174, Not Available"
+!System Software Version 6.7.1.24
+!
+configure
+vlan 10,13-16,20,30,40,50,60,70,80,85
+exit
+vlan 10
+name "MGMT-CORE"
+exit
+vlan 20
+name "WORKSTATIONS"
+exit
+vlan 30
+name "LLM"
+exit
+vlan 40
+name "BACKEND-MCP"
+exit
+vlan 50
+name "MARKETPLACE"
+exit
+vlan 60
+name "PROXMOX"
+exit
+vlan 70
+name "STORAGE-ISCSI"
+exit
+vlan 80
+name "HOME-IoT"
+exit
+hostname "Dell_EMC_Networking_N2048"
+slot 1/0 2    ! Dell EMC Networking N2048
+clock timezone 3 minutes 0
+stack
+member 1 3    ! N2048
+exit
+ip domain-name "Dell_EMC_Networking_N2048"
+ip http secure-port 8080
+ip http secure-server
+interface vlan 1
+ip address dhcp
+exit
+interface vlan 10
+ip address 10.10.10.2 255.255.255.0
+exit
+ip default-gateway 10.10.10.1
+username "admin" password 2f8ff1ebab1d1e6519c37c3256d81256 privilege 15 encrypted
+ip ssh server
+application install SupportAssist auto-restart start-on-boot
+!
+interface Gi1/0/1
+description "MikroTik-RB5009-TRUNK"
+switchport mode trunk
+exit
+!
+interface Gi1/0/2
+description "WorkPC1-VLAN20"
+spanning-tree portfast
+switchport access vlan 20
+exit
+!
+interface Gi1/0/3
+description "WorkPC2-VLAN20"
+spanning-tree portfast
+switchport access vlan 20
+exit
+!
+interface Gi1/0/4
+description "LLM-llm01"
+spanning-tree portfast
+switchport access vlan 30
+exit
+!
+interface Gi1/0/5
+description "MCP-mcp01"
+spanning-tree portfast
+switchport access vlan 40
+exit
+!
+interface Gi1/0/6
+description "MARKET-market01"
+spanning-tree portfast
+switchport access vlan 50
+exit
+!
+interface Gi1/0/10
+description "STORAGE-stor01-LT"
+spanning-tree portfast
+switchport access vlan 70
+exit
+!
+interface Gi1/0/11
+description "PROXMOX-prox01-LT"
+spanning-tree portfast
+switchport access vlan 60
+exit
+!
+interface Gi1/0/12
+description "PROXMOX-prox02-LT"
+spanning-tree portfast
+switchport access vlan 60
+exit
+!
+interface Gi1/0/19
+description "HP-P4500-PBS-mgmt-nic0-10.10.10.30"
+spanning-tree portfast
+switchport access vlan 10
+exit
+!
+interface Gi1/0/20
+description "HP-P4500-PBS-mgmt-pbs01-10.10.10.30"
+spanning-tree portfast
+switchport access vlan 10
+exit
+!
+interface Gi1/0/21
+description "HP-P4500-iSCSI-NIC1-10.70.70.10"
+spanning-tree portfast
+switchport access vlan 70
+exit
+!
+interface Gi1/0/22
+description "HP-P4500-iSCSI-NIC2-10.70.70.11"
+spanning-tree portfast
+switchport access vlan 70
+exit
+!
+interface Gi1/0/23
+description "R640-Node1-iSCSI-VLAN70"
+spanning-tree portfast
+switchport access vlan 70
+exit
+!
+interface Gi1/0/24
+description "R640-Node2-iSCSI-VLAN70"
+spanning-tree portfast
+switchport access vlan 70
+exit
+!
+interface Gi1/0/25
+description "R640-Node3-iSCSI-VLAN70"
+spanning-tree portfast
+switchport access vlan 70
+exit
+!
+interface Gi1/0/29
+description "HP-P4500-PBS-backup-nic2-10.85.85.10"
+spanning-tree portfast
+switchport access vlan 85
+exit
+!
+interface Gi1/0/40
+description "iDRAC-prox01"
+spanning-tree portfast
+switchport access vlan 10
+exit
+!
+interface Gi1/0/41
+description "iDRAC-prox02"
+spanning-tree portfast
+switchport access vlan 10
+exit
+!
+interface Gi1/0/42
+description "R640-iDRAC3-VLAN10"
+spanning-tree portfast
+switchport access vlan 10
+exit
+!
+interface Gi1/0/47
+description "Ubuntu-AdminPC-VLAN10"
+spanning-tree portfast
+switchport access vlan 10
+exit
+!
+interface Gi1/0/48
+description "Ubuntu-AdminPC-VLAN10"
+spanning-tree portfast
+switchport mode trunk
+exit
+!
+interface Te1/0/2
+switchport mode trunk
+exit
+snmp-server engineid local 800002a203f8b15674fd23
+snmp-server community "REDACTED-rotated-2026-08-08-issue-26" rw  # original value rotated; never commit plaintext communities
+exit
+
+Dell_EMC_Networking_N2048
+
+============================================================
+COMMAND: show interfaces status
+============================================================
+Port      Description     Duplex Speed   Neg  Link    Flow  M  VLAN
+                                              State   Ctrl
+--------- --------------- ------ ------- ---- ------- ----- -- -------------------
+Gi1/0/1   MikroTik-RB5009 N/A    Unknown Auto Down    On    T  (1),2-4093
+Gi1/0/2   WorkPC1-VLAN20  N/A    Unknown Auto Down    On    A  20
+Gi1/0/3   WorkPC2-VLAN20  N/A    Unknown Auto Down    On    A  20
+Gi1/0/4   LLM-llm01       N/A    Unknown Auto Down    On    A  30
+Gi1/0/5   MCP-mcp01       N/A    Unknown Auto Down    On    A  40
+Gi1/0/6   MARKET-market01 Full   1000    Auto Up      On    A  50
+Gi1/0/7                   N/A    Unknown Auto Down    On    A  1
+Gi1/0/8                   N/A    Unknown Auto Down    On    A  1
+Gi1/0/9                   N/A    Unknown Auto Down    On    A  1
+Gi1/0/10  STORAGE-stor01- N/A    Unknown Auto Down    On    A  70
+Gi1/0/11  PROXMOX-prox01- N/A    Unknown Auto Down    On    A  60
+Gi1/0/12  PROXMOX-prox02- N/A    Unknown Auto Down    On    A  60
+Gi1/0/13                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/14                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/15                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/16                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/17                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/18                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/19  HP-P4500-PBS-mg N/A    Unknown Auto Down    On    A  10
+Gi1/0/20  HP-P4500-PBS-mg N/A    Unknown Auto Down    On    A  10
+Gi1/0/21  HP-P4500-iSCSI- N/A    Unknown Auto Down    On    A  70
+Gi1/0/22  HP-P4500-iSCSI- N/A    Unknown Auto Down    On    A  70
+Gi1/0/23  R640-Node1-iSCS N/A    Unknown Auto Down    On    A  70
+Gi1/0/24  R640-Node2-iSCS N/A    Unknown Auto Down    On    A  70
+Gi1/0/25  R640-Node3-iSCS N/A    Unknown Auto Down    On    A  70
+Gi1/0/26                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/27                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/28                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/29  HP-P4500-PBS-ba N/A    Unknown Auto Down    On    A  85
+Gi1/0/30                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/31                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/32                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/33                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/34                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/35                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/36                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/37                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/38                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/39                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/40  iDRAC-prox01    N/A    Unknown Auto Down    On    A  10
+Gi1/0/41  iDRAC-prox02    N/A    Unknown Auto Down    On    A  10
+Gi1/0/42  R640-iDRAC3-VLA N/A    Unknown Auto Down    On    A  10
+Gi1/0/43                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/44                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/45                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/46                  N/A    Unknown Auto Down    On    A  1
+Gi1/0/47  Ubuntu-AdminPC- Full   1000    Auto Up      On    A  10
+Gi1/0/48  Ubuntu-AdminPC- Full   1000    Auto Up      On    T  (1),2-4093
+Te1/0/1                   Full   10000   Off  Down    On    A  1
+Te1/0/2                   Full   10000   Off  Down    On    T  (1),2-4093
+
+
+Port    Description                    Link    M  VLAN
+Channel                                State
+------- ------------------------------ ------- -- -------------------
+
+Dell_EMC_Networking_N2048
+
+============================================================
+COMMAND: show mac address-table
+============================================================
+Aging time is 300 Sec
+
+Vlan     Mac Address           Type        Port
+-------- --------------------- ----------- ---------------------
+1        F8B1.5674.FD26        Management  Vl1
+10       04D9.F5C8.BA35        Dynamic     Gi1/0/47
+10       D0EA.114B.67A0        Dynamic     Gi1/0/48
+10       F8B1.5674.FD26        Management  Vl10
+20       D0EA.114B.67A0        Dynamic     Gi1/0/48
+30       D0EA.114B.67A0        Dynamic     Gi1/0/48
+40       D0EA.114B.67A0        Dynamic     Gi1/0/48
+50       1C1B.0D9F.4EA6        Dynamic     Gi1/0/6
+50       D0EA.114B.67A0        Dynamic     Gi1/0/48
+60       D0EA.114B.67A0        Dynamic     Gi1/0/48
+70       D0EA.114B.67A0        Dynamic     Gi1/0/48
+
+Total MAC Addresses in use: 11
+
+Dell_EMC_Networking_N2048
