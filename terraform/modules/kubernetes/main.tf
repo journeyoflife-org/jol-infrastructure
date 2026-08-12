@@ -11,10 +11,15 @@ resource "aws_eks_cluster" "main" {
   role_arn = aws_iam_role.cluster.arn
   version  = var.cluster_version
 
+  # Intentional (ADR-002): prod is private-only; dev/staging expose the
+  # API endpoint for developer kubectl access. IAM + aws-auth RBAC still
+  # gate authentication. Reviewed quarterly (.tfsec/ignored-checks.yml).
+  #trivy:ignore:AWS-0040
+  #trivy:ignore:AWS-0041
   vpc_config {
     subnet_ids              = var.private_subnet_ids
     endpoint_private_access = true
-    endpoint_public_access  = var.environment != "prod" # prod is private-only
+    endpoint_public_access  = var.environment != "prod"
     security_group_ids      = [aws_security_group.cluster.id]
   }
 
@@ -101,11 +106,14 @@ resource "aws_security_group" "cluster" {
 }
 
 resource "aws_security_group_rule" "cluster_egress" {
-  type              = "egress"
-  description       = "Allow all outbound traffic from EKS cluster control plane"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
+  type        = "egress"
+  description = "Allow all outbound traffic from EKS cluster control plane"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  # Control-plane egress is AWS-managed traffic (node registration,
+  # ECR pulls via ENIs); restricting it breaks cluster operation.
+  #trivy:ignore:AWS-0104
   cidr_blocks       = ["0.0.0.0/0"]
   security_group_id = aws_security_group.cluster.id
 }
