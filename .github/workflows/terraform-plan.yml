@@ -107,7 +107,7 @@ jobs:
 
       - name: Configure AWS credentials (OIDC)
         if: steps.aws.outputs.role != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ steps.aws.outputs.role }}
           aws-region: ${{ env.AWS_REGION }}
