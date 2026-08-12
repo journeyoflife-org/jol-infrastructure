@@ -136,7 +136,7 @@ jobs:
 
       - name: Post Plan as PR Comment
         if: steps.aws.outputs.role != ''
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: tf-plan-${{ matrix.environment }}
           message: |
@@ -155,7 +155,7 @@ jobs:
 
       - name: Post skipped-plan notice
         if: steps.aws.outputs.role == ''
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: tf-plan-${{ matrix.environment }}
           message: |
