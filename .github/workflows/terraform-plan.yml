@@ -39,7 +39,7 @@ jobs:
       prod: ${{ steps.changes.outputs.prod }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Detect file changes
         uses: dorny/paths-filter@v3
@@ -74,7 +74,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -59,7 +59,7 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run Checkov
         uses: bridgecrewio/checkov-action@v12
@@ -86,7 +86,7 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run Trivy on Terraform
         # trivy-action tags are v-prefixed (0.28.0 never existed — CI could
@@ -118,7 +118,7 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup OPA
         uses: open-policy-agent/setup-opa@v2
@@ -139,7 +139,7 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run ShellCheck
         run: |
@@ -154,7 +154,7 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -188,7 +188,7 @@ jobs:
     # does not flip the check-run conclusion that branch protection reads.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Dependency Review
         continue-on-error: true
@@ -220,7 +220,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

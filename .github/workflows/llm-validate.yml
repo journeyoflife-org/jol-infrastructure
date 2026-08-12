@@ -19,7 +19,7 @@ jobs:
     name: ShellCheck (llm scripts)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run shellcheck
@@ -34,7 +34,7 @@ jobs:
     name: yamllint (llm ansible)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install yamllint
         run: pipx install yamllint
       - name: Run yamllint
@@ -44,7 +44,7 @@ jobs:
     name: Ansible syntax check
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install ansible-core
         run: pipx install ansible-core
       - name: Syntax check site playbook
