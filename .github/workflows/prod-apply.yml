@@ -75,6 +75,24 @@ jobs:
             exit 1
           fi
 
+      - name: Validate AWS credentials are configured
+        env:
+          ROLE: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
+        run: |
+          # The AWS apply path is a legacy blueprint — production runs 100%
+          # on-prem (Proxmox/bare-metal) and no AWS_ROLE_* secrets are
+          # configured. Fail fast with a clear message instead of erroring
+          # inside configure-aws-credentials.
+          case "${ROLE}" in
+            arn:aws:iam::*) echo "✅ AWS OIDC role configured" ;;
+            *)
+              echo "❌ AWS_ROLE_* secret for '${{ github.event.inputs.environment }}' is not configured."
+              echo "   The platform is on-prem; on-prem changes are applied via Ansible,"
+              echo "   not this workflow. AWS applies require a role ARN secret first."
+              exit 1
+              ;;
+          esac
+
   # ---------------------------------------------------------------------------
   # Terraform Apply
   # ---------------------------------------------------------------------------

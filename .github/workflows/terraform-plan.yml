@@ -93,9 +93,10 @@ jobs:
             staging) role="${STAGING_ROLE}" ;;
             prod) role="${PROD_ROLE}" ;;
           esac
-          # configure-aws-credentials needs a full role ARN; a bare role
-          # name (or empty value) falls back to validation-only planning
-          # (init -backend=false) below until the secret is corrected.
+          # The AWS stack (terraform/) is a legacy blueprint — production
+          # runs 100% on-prem (Proxmox/bare-metal). With no AWS_ROLE_*
+          # secret configured, plans run validation-only by design; a
+          # non-ARN value is treated the same way.
           case "${role}" in
             arn:aws:iam::*) echo "role=${role}" >> "$GITHUB_OUTPUT" ;;
             "") echo "role=" >> "$GITHUB_OUTPUT" ;;
@@ -161,9 +162,11 @@ jobs:
           message: |
             ## ⏭️ Terraform Plan — `${{ matrix.environment }}` skipped
 
-            AWS OIDC role secret (`AWS_ROLE_${{ matrix.environment }}`) is not configured, so only `terraform validate` was executed.
+            No AWS OIDC role is configured for `${{ matrix.environment }}`, so only
+            `terraform init -backend=false` + `terraform validate` were executed.
 
-            To enable real plans:
-            1. Create an IAM OIDC provider + role that trusts `repo:${{ github.repository }}`.
-            2. Add the role ARN to GitHub Secrets as `AWS_ROLE_${{ matrix.environment }}`.
-            3. Re-run this workflow.
+            This is expected while the platform runs 100% on-prem
+            (Proxmox/bare-metal): the `terraform/` tree is kept as a validated
+            blueprint, and on-prem provisioning is driven by Ansible
+            (`ansible/`, `inventory/`). If AWS is ever adopted, add the role ARN
+            as secret `AWS_ROLE_${{ matrix.environment }}` to enable real plans.
