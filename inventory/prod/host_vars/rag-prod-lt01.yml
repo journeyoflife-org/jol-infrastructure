@@ -1,0 +1,51 @@
+# =============================================================================
+# Host variables — rag-prod-lt01 (VM 100, 10.40.40.10)
+# RAG services: vector databases, document indexing, embeddings.
+# NOTE: secrets NEVER live here — Ansible Vault / cloud-init only.
+# =============================================================================
+
+# --- Audit watches (host-specific secret material) ---
+jol_audit_secret_files:
+  - /opt/jol/rag/.env
+
+# --- Application layout (existing Docker Compose stack at /opt/jol/rag,
+#     deployed 2026-08-03; canonical layout adopted via symlinks) ---
+jol_repos_root: /opt/jol/repos
+jol_secrets_dir: /opt/jol/repos/secrets
+jol_app_state_dir: /var/lib/jol-rag
+jol_app_log_dir: /var/log/jol-rag
+
+# --- Service accounts (least privilege; containers add process isolation) ---
+jol_service_users:
+  - jol-rag      # RAG application / API state
+  - jol-vector   # vector database state (qdrant storage)
+  - jol-ollama   # local LLM inference (reserved; inference is on llm-prod-lt01)
+
+# --- Firewall (UFW) — sources restricted per trust boundary ---
+# SSH sources include the NAT gateway (10.40.40.1) because vmbr1 masquerades
+# jump-host connections; removing it locks out all admin access.
+ufw_ssh_allowed_sources:
+  - 10.40.40.0/24
+  - 10.60.60.0/24
+ufw_mgmt_allow_sources:
+  - 10.60.60.0/24          # Proxmox management segment (any port)
+ufw_http_allowed_sources:
+  - 10.40.40.0/24          # internal reverse-proxy / service mesh only
+ufw_rag_api_port: 8000
+ufw_monitoring_allowed_sources:
+  - 10.40.40.0/24          # no dedicated monitoring segment yet
+
+# --- Monitoring agent ---
+node_exporter_bind_address: "10.40.40.10"
+
+# --- Log shipping (Promtail -> Loki) ---
+# Loki endpoint not provisioned yet: config + unit are staged, service stays
+# disabled so the deployment never fails on an absent collector (per spec).
+promtail_enabled: false
+loki_push_url: "http://loki.monitoring.jol.internal:3100/loki/api/v1/push"
+
+# --- Backup client ---
+# VM-level backups handled by PBS/pve-prod-hv01; guest agent enables
+# consistent (fs-frozen) snapshots. Nightly app-level qdrant snapshot cron.
+backup_qdrant_script: /opt/jol/rag/scripts/backup-qdrant.sh
+backup_qdrant_schedule: "30 3 * * *"

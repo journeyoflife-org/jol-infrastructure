@@ -1,0 +1,123 @@
+# =============================================================================
+# role: base_firewall — UFW baseline + Docker publish-path guard
+#
+# IMPORTANT: Docker manipulates iptables directly and bypasses UFW for
+# published ports (0.0.0.0:8000 on this host). The DOCKER-USER chain guard
+# below enforces source restrictions on container-published ports.
+# =============================================================================
+---
+- name: Allow all traffic from management segment
+  community.general.ufw:
+    rule: allow
+    direction: in
+    src: "{{ item }}"
+    comment: "Proxmox management segment"
+  loop: "{{ ufw_mgmt_allow_sources }}"
+
+- name: Allow SSH from trusted sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    port: "{{ ssh_port | string }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "SSH admin access"
+  loop: "{{ ufw_ssh_allowed_sources }}"
+
+- name: Allow HTTP/HTTPS from internal sources (reverse proxy)
+  community.general.ufw:
+    rule: allow
+    direction: in
+    port: "{{ item.1 | string }}"
+    proto: tcp
+    src: "{{ item.0 }}"
+    comment: "HTTP(S) reverse proxy"
+  loop: "{{ ufw_http_allowed_sources | product([80, 443]) | list }}"
+
+- name: Allow RAG API port from internal sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    port: "{{ ufw_rag_api_port | string }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "RAG API"
+  loop: "{{ ufw_http_allowed_sources }}"
+  when: ufw_rag_api_port is defined
+
+- name: Allow node-exporter from monitoring sources only
+  community.general.ufw:
+    rule: allow
+    direction: in
+    port: "{{ node_exporter_port | string }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "Prometheus node-exporter"
+  loop: "{{ ufw_monitoring_allowed_sources }}"
+
+- name: Allow Ollama inference port from AI services sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    port: "{{ ufw_ollama_port | default(11434) | string }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "Ollama inference API"
+  loop: "{{ ufw_ollama_allowed_sources }}"
+  when: ufw_ollama_allowed_sources is defined
+
+- name: Set default incoming policy
+  ansible.builtin.command: "ufw default {{ ufw_default_incoming }} incoming"
+  changed_when: false   # ufw always prints 'changed'; state verified below
+
+- name: Set default outgoing policy
+  ansible.builtin.command: "ufw default {{ ufw_default_outgoing }} outgoing"
+  changed_when: false   # ufw always prints 'changed'; state verified below
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Reload UFW (applies policy even when config file was already correct)
+  ansible.builtin.command: ufw reload
+  changed_when: false   # corrective safeguard; effective state verified below
+
+- name: Verify effective policies (guard against silent module no-op)
+  ansible.builtin.command: ufw status verbose
+  register: ufw_effective
+  changed_when: false
+  failed_when: >-
+    'Default: deny (incoming)' not in ufw_effective.stdout
+    or 'allow (outgoing)' not in ufw_effective.stdout
+
+- name: Deploy Docker published-port guard script
+  ansible.builtin.template:
+    src: jol-docker-firewall.sh.j2
+    dest: /usr/local/sbin/jol-docker-firewall.sh
+    owner: root
+    group: root
+    mode: "0750"
+  when: docker_guard_enabled | default(true) | bool
+
+- name: Deploy Docker firewall oneshot unit
+  ansible.builtin.template:
+    src: jol-docker-firewall.service.j2
+    dest: /etc/systemd/system/jol-docker-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - apply docker firewall
+  when: docker_guard_enabled | default(true) | bool
+
+- name: Enable Docker firewall unit
+  ansible.builtin.systemd_service:
+    name: jol-docker-firewall
+    enabled: true
+  when: docker_guard_enabled | default(true) | bool
+
+- name: Apply Docker firewall rules now
+  ansible.builtin.command: /usr/local/sbin/jol-docker-firewall.sh
+  changed_when: false   # script is idempotent (-C checks before insert)
+  when: docker_guard_enabled | default(true) | bool

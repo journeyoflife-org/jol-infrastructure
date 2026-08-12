@@ -36,3 +36,19 @@
 3. Kubernetes Secret is updated
 4. Application detects change via file watch or restart
 5. Old secret value invalidated at the service level
+
+## On-prem Instance (admin01, deployed 2026-08-08 — issue #26)
+
+The on-prem fleet has its own Vaultwarden for credentials that never
+enter Kubernetes (switch, host-local accounts):
+
+- Container `jol-vaultwarden` (`vaultwarden/server`), loopback only:
+  `http://127.0.0.1:8090` on admin01; data volume
+  `/home/jol/secrets/vaultwarden` (include in backup)
+- Items are stored per `{env}/{domain}/{host}/{key}`, e.g.
+  `prod/network/n2048-admin`, and are client-side encrypted (usable by
+  standard Bitwarden clients)
+- Browser use requires putting a TLS reverse proxy in front first
+  (WebCrypto requires HTTPS); until then retrieve items via API
+- Never write secret values into this repository; helper scripts read
+  them from environment variables (see `scripts/network/`)

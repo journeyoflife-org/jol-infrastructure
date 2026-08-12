@@ -1,0 +1,17 @@
+# =============================================================================
+# role: monitoring — node_exporter + Promtail (staged)
+# Binaries are checksum-pinned (supply-chain integrity, SOC 2 CC8.1).
+# =============================================================================
+---
+node_exporter_version: "1.8.2"
+node_exporter_sha256: "6809dd0b3ec45fd6e992c19071d6b5253aed3ead7bf0686885a51d85c6643c66"
+node_exporter_port: 9100
+node_exporter_bind_address: "0.0.0.0"
+
+promtail_version: "2.9.8"
+promtail_sha256: "714ca8d83d7a9ed9ae18a1f632a3b264d5741ecf34f4adbe203964540ae6c604"
+# Disabled by default: Loki endpoint must exist before enabling.
+promtail_enabled: false
+loki_push_url: "http://loki.monitoring.jol.internal:3100/loki/api/v1/push"
+promtail_log_paths:
+  - /var/log/jol-rag/*.log

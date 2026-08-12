@@ -1,0 +1,24 @@
+# =============================================================================
+# node_exporter.service — managed by Ansible (role: monitoring)
+# =============================================================================
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/node_exporter \
+    --web.listen-address={{ node_exporter_bind_address }}:{{ node_exporter_port }}
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

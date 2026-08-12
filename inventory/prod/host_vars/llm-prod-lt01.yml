@@ -1,0 +1,73 @@
+# =============================================================================
+# Host variables — llm-prod-lt01 (bare-metal, 10.30.30.10)
+# Ollama CPU-only inference endpoint for the JOL platform.
+# NOTE: secrets NEVER live here — Ansible Vault / secrets manager only.
+# =============================================================================
+
+# --- Application layout (Ollama state lives under /var/lib/jol-ollama) ---
+jol_repos_root: /opt/jol/repos
+jol_secrets_dir: /opt/jol/repos/secrets
+jol_app_state_dir: /var/lib/jol-ollama
+jol_app_state_owner: jol-ollama
+jol_app_log_dir: /var/log/jol-ollama
+
+# --- Service accounts (least privilege) ---
+jol_service_users:
+  - jol-ollama   # Ollama model store / inference service
+
+# --- Firewall (UFW) — sources restricted per trust boundary ---
+# SSH + management from admin (VLAN 10) and Proxmox mgmt (VLAN 60) only.
+ufw_ssh_allowed_sources:
+  - 10.10.10.0/24
+  - 10.60.60.0/24
+ufw_mgmt_allow_sources:
+  - 10.10.10.0/24
+  - 10.60.60.0/24
+ufw_http_allowed_sources: []        # no web services on this host
+ufw_monitoring_allowed_sources:
+  - 10.10.10.0/24
+  - 10.60.60.0/24
+# Ollama API exposed to the AI Services segment only (VLAN 40).
+ufw_ollama_allowed_sources:
+  - 10.40.40.0/24
+
+# --- No Docker on this host: skip the DOCKER-USER published-port guard ---
+docker_guard_enabled: false
+
+# --- Ollama runtime pin (reproducible rebuilds; docs record history) ---
+ollama_version: "0.32.6"
+# Production model: qwen3:30b (30B-A3B MoE, 18 GB Q4_K_M) — best CPU-only
+# fit for the 3950X (bandwidth-bound decode; ~3B active params: 19.0 t/s
+# vs 10.0 t/s for mistral-7b). Aliased to `mistral-7b-instruct` to match
+# RAG's OLLAMA_MODEL without any RAG-side change; `mistral:7b-instruct`
+# retained on-host as rollback.
+llm_model: "qwen3:30b"
+llm_model_alias: "mistral-7b-instruct"
+llm_model_rollback: "mistral:7b-instruct"
+
+# --- Backup (model store -> pbs01, PBS-native push, since 2026-08-11) ---
+# Nightly root cron 03:15 runs /usr/local/sbin/backup-ollama-models.sh
+# (source: scripts/maintenance/backup-ollama-models.sh). Credentials are
+# NOT in inventory: /etc/jol-ollama/pbs-token + pbs-encryption.key (600).
+llm_backup_target: "pbs01"
+llm_backup_repository: "jol-llm-backup@pbs!llm-token@10.10.10.30:pbs-store"
+llm_backup_namespace: "jol-llm"
+llm_backup_schedule: "15 3 * * *"
+llm_backup_keep_daily: 7
+llm_backup_keep_weekly: 4
+# TLS pin = pbs01 server-cert fingerprint (docs/servers/pbs01.md); rotate
+# together with a pbs01 cert renewal.
+llm_backup_server_fingerprint: "4b:93:a9:7e:0b:9a:89:ee:1a:9f:64:2c:40:e1:8f:3a:4a:91:92:d4:29:ed:f5:a6:1b:1d:b3:26:e6:4c:54:92"
+
+# --- Monitoring agent ---
+node_exporter_bind_address: "10.30.30.10"
+# Upgraded 1.8.2 -> 1.12.1 on 2026-08-09 (host-level override; rag stays on
+# the group_vars pin until its own upgrade window)
+node_exporter_version: "1.12.1"
+node_exporter_sha256: "b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63"
+
+# --- Log shipping (Promtail -> Loki) ---
+# Loki endpoint not provisioned yet: staged, service disabled (per spec).
+promtail_enabled: false
+promtail_log_paths:
+  - /var/log/jol-ollama/*.log

@@ -42,3 +42,28 @@ For data breaches involving personal data:
 - Write postmortem within 48h
 - Update runbooks with lessons learned
 - Schedule follow-up in 1 week
+
+## Known Playbooks
+
+### Host unreachable after hardware/NIC change (port-security err-disable)
+
+Applies when a host on an access port becomes unreachable after a board/NIC
+swap (e.g. llm-prod-lt01 Gi1/0/4, 2026-08). Symptom: gateway and switch mgmt
+pingable, host not. Note: in the 2026-08 incident the port was NOT
+err-disabled — it was a host-side physical link fault (step 4).
+
+1. Confirm scope from admin01: `ping 10.30.30.1` (gateway) and `ping 10.10.10.2`
+   (switch) reachable, host IP not.
+2. Diagnose (read-only): `scripts/network/diagnose-gi104.sh` — save output as
+   evidence (SOC 2 CC7.2).
+3. If `show interfaces status err-disabled` lists the port: raise a change
+   request, then re-enable:
+   `scripts/network/n2048-cli.py --config "interface gigabitethernet 1/0/4" shutdown "no shutdown" exit`
+   (commands after `--config` are positional, or use `--config --commands ...`;
+   remove any stale secured MAC on the interface first).
+4. If admin up but link down and NOT err-disabled (physical, as in the
+   2026-08 incident): check host power, NIC LEDs, cable, onboard LAN enabled
+   in UEFI. No switch change needed.
+5. On the host: verify static IP config matches the port table
+   (netplan; NIC name may have changed after the swap).
+6. Verify: `ping <host IP>` from admin01, then SSH key-only access.

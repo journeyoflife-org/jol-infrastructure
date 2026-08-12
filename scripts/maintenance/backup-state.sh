@@ -30,7 +30,7 @@ VERSIONS=$(aws s3api list-object-versions \
 
 if [ -n "$VERSIONS" ]; then
   i=1
-  echo "$VERSIONS" | while read -r version_id last_modified; do
+  echo "$VERSIONS" | while read -r version_id _last_modified; do
     aws s3api get-object \
       --bucket "$BUCKET" \
       --key terraform.tfstate \
@@ -43,4 +43,4 @@ fi
 
 echo ""
 echo "✅ State backup saved to: ${BACKUP_DIR}"
-echo "   Files: $(ls -1 "$BACKUP_DIR" | wc -l)"
+echo "   Files: $(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 | wc -l)"

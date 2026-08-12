@@ -1,0 +1,15 @@
+# =============================================================================
+# jol-docker-firewall.service — managed by Ansible (role: base_firewall)
+# =============================================================================
+[Unit]
+Description=Restrict Docker published ports (DOCKER-USER chain)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jol-docker-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -34,9 +34,13 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   count = length(var.public_subnet_cidrs)
 
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidrs[count.index]
-  availability_zone       = var.availability_zones[count.index]
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = var.public_subnet_cidrs[count.index]
+  availability_zone = var.availability_zones[count.index]
+  # Intentional (ADR-004): public tier hosts only NAT gateways and
+  # internet-facing ALBs (tagged kubernetes.io/role/elb); workloads run
+  # in the private tier. Auto-assigned IPs are required for this pattern.
+  #trivy:ignore:AWS-0164
   map_public_ip_on_launch = true
 
   tags = merge(var.tags, {
@@ -244,6 +248,9 @@ resource "aws_flow_log" "main" {
   })
 }
 
+# Encrypted at rest with the AWS-managed CloudWatch Logs key; a
+# customer-managed CMK is deferred (cost/key-ops) — acceptable per review.
+#trivy:ignore:AWS-0017
 resource "aws_cloudwatch_log_group" "flow_logs" {
   name              = "/vpc/flow-logs/${var.project}-${var.environment}"
   retention_in_days = var.flow_log_retention_days

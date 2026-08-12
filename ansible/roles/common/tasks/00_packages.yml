@@ -1,0 +1,21 @@
+# =============================================================================
+# 00_packages.yml — apt upgrade + baseline tooling
+# =============================================================================
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Upgrade all packages (apt upgrade -y)
+  ansible.builtin.apt:
+    upgrade: true
+
+- name: Install baseline tooling
+  ansible.builtin.apt:
+    name: "{{ common_baseline_packages }}"
+    state: present
+
+- name: Remove unused dependencies
+  ansible.builtin.apt:
+    autoremove: true

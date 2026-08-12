@@ -22,6 +22,7 @@ aws ec2 describe-volumes \
 # Unassociated Elastic IPs
 echo ""
 echo "=== Unassociated Elastic IPs ==="
+# shellcheck disable=SC2016  # JMESPath query: backticks are JMESPath literals, not shell expansion
 aws ec2 describe-addresses \
   --filters "Name=domain,Values=vpc" \
   --query 'Addresses[?AssociationId==`null`].[AllocationId,PublicIp]' \

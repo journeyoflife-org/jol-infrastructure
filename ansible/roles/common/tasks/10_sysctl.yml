@@ -1,0 +1,14 @@
+# =============================================================================
+# 10_sysctl.yml — kernel hardening parameters (persisted in /etc/sysctl.d)
+# =============================================================================
+---
+- name: Apply kernel hardening sysctl parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-jol-hardening.conf
+    state: present
+    reload: true
+  loop: "{{ common_sysctl_params | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"

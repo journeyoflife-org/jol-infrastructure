@@ -1,0 +1,22 @@
+# =============================================================================
+# promtail.service — managed by Ansible (role: monitoring)
+# =============================================================================
+[Unit]
+Description=Grafana Promtail log shipper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=promtail
+Group=promtail
+ExecStart=/usr/local/bin/promtail-linux-amd64 -config.file=/etc/promtail/config.yml
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/promtail /var/log/jol-rag
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -89,9 +89,20 @@ jobs:
           PROD_ROLE: ${{ secrets.AWS_ROLE_PROD }}
         run: |
           case "${{ matrix.environment }}" in
-            dev) echo "role=${DEV_ROLE}" >> "$GITHUB_OUTPUT" ;;
-            staging) echo "role=${STAGING_ROLE}" >> "$GITHUB_OUTPUT" ;;
-            prod) echo "role=${PROD_ROLE}" >> "$GITHUB_OUTPUT" ;;
+            dev) role="${DEV_ROLE}" ;;
+            staging) role="${STAGING_ROLE}" ;;
+            prod) role="${PROD_ROLE}" ;;
+          esac
+          # configure-aws-credentials needs a full role ARN; a bare role
+          # name (or empty value) falls back to validation-only planning
+          # (init -backend=false) below until the secret is corrected.
+          case "${role}" in
+            arn:aws:iam::*) echo "role=${role}" >> "$GITHUB_OUTPUT" ;;
+            "") echo "role=" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::warning::AWS_ROLE secret for '${{ matrix.environment }}' is not a role ARN — falling back to validation-only plan"
+              echo "role=" >> "$GITHUB_OUTPUT"
+              ;;
           esac
 
       - name: Configure AWS credentials (OIDC)

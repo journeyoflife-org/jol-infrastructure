@@ -89,7 +89,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy on Terraform
-        uses: aquasecurity/trivy-action@0.28.0
+        # trivy-action tags are v-prefixed (0.28.0 never existed — CI could
+        # not resolve it); pinned to latest release v0.36.0.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: 'terraform/'
@@ -182,12 +184,14 @@ jobs:
     if: github.event_name == 'pull_request'
     # GHAS + Dependency graph must be enabled for strict enforcement.
     # Until then, this job reports issues but does not block merges.
-    continue-on-error: true
+    # NOTE: continue-on-error lives on the STEP, not the job — job-level
+    # does not flip the check-run conclusion that branch protection reads.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Dependency Review
+        continue-on-error: true
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high

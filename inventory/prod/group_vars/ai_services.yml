@@ -1,0 +1,53 @@
+# =============================================================================
+# Group variables — ai_services environment
+# Applied to all hosts under the "ai_services" inventory group
+# VLAN 40 — AI Services Segment (10.40.40.0/24)
+# =============================================================================
+
+# --- General ---
+jol_environment: prod
+jol_domain: "jol.internal"
+jol_admin_user: jol-admin
+jol_timezone: "Europe/Vilnius"
+
+# --- SSH hardening ---
+ssh_port: 22
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_challenge_response: "no"
+ssh_max_auth_tries: 3
+ssh_idle_timeout: 900
+
+# --- Time synchronisation ---
+time_sync_service: chrony
+time_sync_servers:
+  - 0.ubuntu.pool.ntp.org
+  - 1.ubuntu.pool.ntp.org
+  - 2.ubuntu.pool.ntp.org
+
+# --- Firewall (UFW) ---
+ufw_default_incoming: deny
+ufw_default_outgoing: allow
+ufw_allowed_tcp_ports:
+  - 22
+  - 9100  # node-exporter (monitoring)
+ufw_allowed_udp_ports: []
+
+# --- Per-role firewall ports (applied via host_vars or role-specific tasks) ---
+# mcp-prod-lt01:  3000 (MCP API)
+# her-prod-lt01:  8080 (Hermes agent API)
+# Note: rag-prod-lt01 service ports are managed in JourneyOfLife/jol-rag-server.
+
+# --- Monitoring ---
+monitoring_enabled: true
+node_exporter_version: "1.8.2"
+node_exporter_port: 9100
+
+# --- Backup ---
+backup_enabled: true
+backup_schedule: "0 2 * * *"
+
+# --- Network ---
+jol_vlan: 40
+jol_gateway: "10.40.40.1"
+jol_ollama_endpoint: "http://10.30.30.10:11434/v1"

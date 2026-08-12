@@ -1,0 +1,19 @@
+# =============================================================================
+# 30_auditd.yml — audit rules for privileged/security-relevant files
+# GDPR Art. 30 / SOC 2 CC7.2 — tamper-evident audit trail
+# =============================================================================
+---
+- name: Deploy JOL audit rules
+  ansible.builtin.template:
+    src: audit-jol.rules.j2
+    dest: /etc/audit/rules.d/jol-hardening.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: reload audit rules
+
+- name: Ensure auditd is enabled and running
+  ansible.builtin.systemd_service:
+    name: auditd
+    enabled: true
+    state: started

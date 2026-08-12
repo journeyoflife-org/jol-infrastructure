@@ -1,0 +1,32 @@
+# =============================================================================
+# JOL audit rules — managed by Ansible (role: common). Do not edit manually.
+# SOC 2 CC7.2 / GDPR Art. 30 / ISO 27001 A.8.15
+# =============================================================================
+
+# Identity and authentication material
+-w /etc/passwd -p wa -k jol_identity
+-w /etc/group -p wa -k jol_identity
+-w /etc/shadow -p wa -k jol_identity
+-w /etc/sudoers -p wa -k jol_privilege
+-w /etc/sudoers.d/ -p wa -k jol_privilege
+
+# SSH configuration
+-w /etc/ssh/sshd_config -p wa -k jol_ssh
+-w /etc/ssh/sshd_config.d/ -p wa -k jol_ssh
+
+# Firewall and kernel policy
+-w /etc/ufw/ -p wa -k jol_firewall
+-w /etc/sysctl.d/ -p wa -k jol_kernel
+
+# Secrets and application state boundaries
+-w /opt/jol/repos/secrets/ -p wa -k jol_secrets
+{% for p in jol_audit_secret_files | default([]) %}
+-w {{ p }} -p wa -k jol_secrets
+{% endfor %}
+
+# Privilege escalation
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k jol_privilege_exec
+-a always,exit -F arch=b64 -S execve -C gid!=egid -F egid=0 -k jol_privilege_exec
+
+# Make the configuration immutable (requires reboot to change)
+-e 2

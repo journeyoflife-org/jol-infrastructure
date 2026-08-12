@@ -1,0 +1,45 @@
+# =============================================================================
+# Group variables — llm environment
+# Applied to all hosts under the "llm" inventory group
+# VLAN 30 — GPU/LLM Segment (10.30.30.0/24)
+# =============================================================================
+
+# --- General ---
+jol_environment: prod
+jol_domain: "jol.internal"
+jol_admin_user: jol-admin
+jol_timezone: "Europe/Vilnius"
+
+# --- SSH hardening ---
+ssh_port: 22
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_challenge_response: "no"
+ssh_max_auth_tries: 3
+ssh_idle_timeout: 900
+
+# --- Time synchronisation ---
+time_sync_service: chrony
+time_sync_servers:
+  - 0.ubuntu.pool.ntp.org
+  - 1.ubuntu.pool.ntp.org
+  - 2.ubuntu.pool.ntp.org
+
+# --- Firewall (UFW) ---
+ufw_default_incoming: deny
+ufw_default_outgoing: allow
+
+# --- Monitoring ---
+monitoring_enabled: true
+node_exporter_version: "1.8.2"
+node_exporter_port: 9100
+
+# --- Backup ---
+# Bare-metal host: no PBS guest-agent backup; model weights re-pullable,
+# state restore procedure recorded in docs/servers/llm-prod-lt01.md.
+backup_enabled: false
+backup_client_enabled: false
+
+# --- Network ---
+jol_vlan: 30
+jol_gateway: "10.30.30.1"

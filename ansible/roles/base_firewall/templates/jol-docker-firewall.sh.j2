@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# =============================================================================
+# jol-docker-firewall.sh — managed by Ansible (role: base_firewall).
+# Docker bypasses UFW for published ports; restrict them in DOCKER-USER.
+# Idempotent: checks before inserting. Zero-trust: deny all other sources.
+# =============================================================================
+set -euo pipefail
+
+# Wait for Docker to have created the DOCKER-USER chain
+if ! iptables -L DOCKER-USER -n >/dev/null 2>&1; then
+    echo "DOCKER-USER chain absent (docker not running?) — nothing to do"
+    exit 0
+fi
+
+{% for src in docker_firewall_allow_sources %}
+iptables -C DOCKER-USER -p tcp --dport {{ docker_firewall_port }} -s {{ src }} -j RETURN 2>/dev/null \
+    || iptables -I DOCKER-USER 1 -p tcp --dport {{ docker_firewall_port }} -s {{ src }} -j RETURN
+{% endfor %}
+
+# Established/related return traffic for locally initiated connections
+iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN 2>/dev/null \
+    || iptables -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+
+# Drop everything else aimed at the published port
+iptables -C DOCKER-USER -p tcp --dport {{ docker_firewall_port }} -j DROP 2>/dev/null \
+    || iptables -A DOCKER-USER -p tcp --dport {{ docker_firewall_port }} -j DROP
+
+echo "Docker published-port guard applied (port {{ docker_firewall_port }})"
