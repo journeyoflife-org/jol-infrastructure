@@ -23,6 +23,7 @@ resource "aws_kms_alias" "storage" {
 }
 
 # tfsec:ignore:aws-s3-enable-bucket-logging
+#trivy:ignore:AWS-0089
 resource "aws_s3_bucket" "app_data" {
   # checkov:skip=CKV_AWS_18:Access logging for application data is centralized via CloudTrail S3 data events; bucket-level server access logging deferred to avoid log recursion and cost.
   # checkov:skip=CKV_AWS_21:Versioning is configured via the separate aws_s3_bucket_versioning resource per AWS provider v4+ best practice.
