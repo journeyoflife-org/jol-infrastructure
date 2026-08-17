@@ -282,6 +282,40 @@ WantedBy=multi-user.target
 □ Snapshot+record:     qm listsnapshot 101; Change History entry in docs/servers/mcp-prod-lt01.md   # §0.3
 ```
 
+#### M3 Finding — Root Cause & Correct Remediation (professional opinion, 2026-08-18)
+
+**Why the error exists** (verified causal chain):
+1. **Code default is a container convention**: both git tools read `os.environ.get("JOL_MCP_GIT_REPO_ROOT", "/repos")` — `/repos` is a container-mount path (each server ships a Dockerfile), not a bare-metal path.
+2. **Env file never caught up**: `/etc/jol-mcp/mcp.env` was created 2026-08-03 21:18 with only the audit plumbing (`JOL_MCP_LOG_LEVEL`, `JOL_MCP_AUDIT_LOG_PATH`); the git server's repo-root requirement was never propagated into it.
+3. **Manual deployment has no drift detection**: deploy is a post-receive git push with no Ansible role (host doc: "stays manual until extraction trigger") — nothing reconciles `mcp.env` against the code's env-var contract.
+4. **The failure is soft by design**: `git_status` returns `"Error: Repository ... not found."` (logged to audit.jsonl as a failed outcome) instead of crashing — units stay active, startup-only smoke tests (2026-08-12: 4/4 PASS) never exercise a real tool call, so the gap stayed latent 15 days until gate M3 probed the contract.
+
+**Impact**: security LOW (fail-closed; sanitiser still rejects traversal), capability HIGH — every `git_status`/`git_log` agent invocation fails; audit trail accumulates failed outcomes (SOC 2 CC7.2 noise).
+
+**Correct fix (change-controlled, §0.3)** — recommended value follows fleet convention; the host already has `/opt/jol/repos` (created 2026-08-12):
+```bash
+# 1. Issue + snapshot (from pve)
+qm snapshot 101 pre-m3-fix-$(date +%Y%m%d-%H%M)
+# 2. Backup + patch (inside guest, as root via qm guest exec)
+cp -p /etc/jol-mcp/mcp.env /etc/jol-mcp/mcp.env.bak.$(date +%Y%m%d-%H%M)
+echo 'JOL_MCP_GIT_REPO_ROOT=/opt/jol/repos' >> /etc/jol-mcp/mcp.env   # keep 600 root:root
+# 3. Provision an inspectable WORK TREE (bare repos under /opt/jol/git fail
+#    'git status' — needs a work tree), readable by mcp-svc:
+git clone --depth 1 /opt/jol/git/jol-mcp-servers.git /opt/jol/repos/jol-mcp-servers
+chown -R jol-admin:jol-admin /opt/jol/repos/jol-mcp-servers && chmod -R a+rX /opt/jol/repos/jol-mcp-servers
+# 4. Rolling restart the affected unit, verify
+systemctl restart jol-git-server && systemctl is-active jol-git-server
+# 5. Re-gate M3 + end-to-end tools/call with repo NAME "jol-mcp-servers";
+#    audit.jsonl must show a SUCCESS outcome
+# 6. Change History row in docs/servers/mcp-prod-lt01.md
+```
+**Rollback**: restore `.bak` file, remove the provisioned clone, restart the unit.
+
+**Root-cause elimination (permanent, tracked)**:
+1. Fail-visible: jol-git-server should log a startup WARN (or refuse registration) when `JOL_MCP_GIT_REPO_ROOT` is unset or the dir absent — surface the contract at deploy time, not first invocation.
+2. Smoke-test upgrade: extend the deploy smoke to make one end-to-end tool call against the configured root — startup-only smoke is exactly what let M3 pass on 2026-08-12.
+3. Extraction trigger: move MCP deployment under an Ansible role templating `mcp.env` from inventory (same pattern as rag/llm hosts) — manual env files will drift again otherwise.
+
 #### Cross-Repo Dependencies
 - **Upstream**: `jol-core` (shared audit/auth models), `jol-infrastructure` (host hardening, systemd units)
 - **Downstream**: `jol-hermes-agents` (aspirational MCP client consumer — no MCP client exists in that repo yet; see §2.4)
@@ -528,7 +562,7 @@ Add these as Qoder context files (`@filename`) when working on specific tasks:
 Execution path note: admin01 (10.10.10.0/24) is blocked from VLAN 40 SSH/service ports at the MikroTik inter-VLAN firewall; rag/mcp gates therefore ran via `qm guest exec` (qemu-guest-agent) from pve. Host UFW on both VMs was aligned to include 10.10.10.0/24 under snapshots `pre-ufw-admin01-20260817-2341` (rollback points) — dormant until the router-level decision below.
 
 **Tracked follow-ups from the certification run (never silent):**
-1. **M3 remediation** (change-controlled): set `JOL_MCP_GIT_REPO_ROOT` in `/etc/jol-mcp/mcp.env`, rolling-restart the 4 units, re-gate M3
+1. **M3 remediation** (change-controlled; full procedure in §2.3): set `JOL_MCP_GIT_REPO_ROOT=/opt/jol/repos`, provision a work-tree clone readable by mcp-svc, restart jol-git-server, re-gate M3 end-to-end; permanent fixes = fail-visible startup check + end-to-end smoke + Ansible extraction
 2. **Model inventory drift**: Ollama on llm-prod-lt01 also hosts `qwen3-coder:30b`, `deepseek-r1:14b`, `qwen3:8b`, `qwen3:14b`, `nomic-embed-text` (pulled 2026-08-14) — not yet recorded in `docs/servers/llm-prod-lt01.md`
 3. **Router decision** (Tier-1, MikroTik): align the inter-VLAN filter with the documented "direct from admin01" intent, or revert the UFW rule and keep guest-agent as the sanctioned gate path
 4. **L15/L16**: deliver jol-llm test assets to llm-prod-lt01, then certify 0-day retention + egress blocking on-host
