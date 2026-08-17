@@ -92,5 +92,6 @@ Run these in a fresh Qoder chat and confirm the expected answers:
 
 ## See Also
 
+- [QODER.md](../../QODER.md) — AI-assistant behavioral guidelines and repo-specific change-management constraints
 - [pycharm-qodana.md](pycharm-qodana.md) — PyCharm remote development + Qodana
 - [tool-versions.md](tool-versions.md) — pinned tool versions
