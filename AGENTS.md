@@ -5,7 +5,7 @@
 **Compliance**: GDPR Article 9 (special category: religious affiliation), PCI-DSS (donations), SOC 2 Type II, ISO 27001:2022
 **Role**: You are a Principal Platform Architect with 30 years of combined SEO, UI/UX, GitHub, and DevOps expertise. Every recommendation must include: (1) security impact, (2) compliance impact, (3) cross-repo dependency impact, (4) rollback strategy.
 
-> **Audit status**: 2026-08-17 — 26 findings (5 HIGH, 10 MEDIUM, 11 LOW) raised against the draft and applied in this file. P2 host-side gates executed 2026-08-17: llm 14/14 PASS, rag 13/13 PASS, mcp 13/14 (M3 genuine gap). §2.4 jol-hermes-agents audited 2026-08-18 (declarative-only; runtime C1 open). See §7 Audit Trail. Ground-truth sources: `docs/servers/{rag,llm,mcp}-prod-lt01.md`, `inventory/prod/host_vars/*.yml`, and the `jol-rag-server`, `jol-llm`, `jol-mcp-servers`, `jol-hermes-agents` repositories.
+> **Audit status**: 2026-08-17 — 26 findings (5 HIGH, 10 MEDIUM, 11 LOW) raised against the draft and applied in this file. P2 host-side gates executed 2026-08-17: llm 14/14 PASS, rag 13/13 PASS, mcp 13/14 → **M3 remediated 2026-08-18, mcp now 14/14 PASS**. §2.4 jol-hermes-agents audited 2026-08-18 (declarative-only; runtime C1 open). See §7 Audit Trail. Ground-truth sources: `docs/servers/{rag,llm,mcp}-prod-lt01.md`, `inventory/prod/host_vars/*.yml`, and the `jol-rag-server`, `jol-llm`, `jol-mcp-servers`, `jol-hermes-agents` repositories.
 
 ---
 
@@ -272,7 +272,7 @@ WantedBy=multi-user.target
 □ Audit schema:        sudo tail -1 /var/log/jol-mcp/audit.jsonl | jq 'has("timestamp") and has("caller") and has("tool") and has("outcome")'   # true (AuditEvent keys: timestamp, event_class, severity, caller, tool, outcome, security)
 □ Logrotate:           sudo logrotate -d /etc/logrotate.d/jol-mcp 2>&1 | grep -i error || echo "LOGROTATE OK"
 □ Secret exposure:     find /opt/jol-mcp-servers -name "*.env" -perm /o+r | wc -l   # MUST be 0
-□ mcp.env perms:       sudo stat -c "%a %U:%G" /etc/jol-mcp/mcp.env   # 600 root:root — VERIFIED on host 2026-08-17 (gate M8 PASS)
+□ mcp.env perms:       sudo stat -c "%a %U:%G" /etc/jol-mcp/mcp.env   # actual: 640 root:mcp-svc (group=mcp-svc so the unit's EnvironmentFile loads; world bits MUST be 0) — VERIFIED 2026-08-17
 □ auditd watch:        sudo auditctl -l | grep mcp.env             # -w /etc/jol-mcp/mcp.env -p wa -k jol_secrets
 □ UFW:                 sudo ufw status                              # 22 ← 10.40.40.0/24 + 10.60.60.0/24; 9100 ← 10.40.40.0/24 ONLY; default deny
 □ node_exporter:       curl -sf http://10.40.40.11:9100/metrics | head -1   # run from an authorized 10.40.40.0/24 source
@@ -310,6 +310,11 @@ systemctl restart jol-git-server && systemctl is-active jol-git-server
 # 6. Change History row in docs/servers/mcp-prod-lt01.md
 ```
 **Rollback**: restore `.bak` file, remove the provisioned clone, restart the unit.
+
+**STATUS: EXECUTED 2026-08-18** — snapshot `pre-m3-fix-20260818-0014`; env patched + backed up; clone provisioned (HEAD c226602); end-to-end `git_status` → "Working tree clean" + audit `Success`; re-gate **14/14 PASS** (`guest-exec-mcp-prod-lt01-20260818-002317.log`). Implementation lessons discovered during execution:
+- root cannot clone/write into jol-admin-owned dirs even as uid 0 when ownership checks apply — run the clone **as jol-admin** (`sudo -u jol-admin git clone`), and pass `-c safe.directory=<bare>` only for that scoped operation
+- git's `safe.directory` protection rejects repos whose owner ≠ invoking user: the inspection copy must be owned by the service account that runs the tool (`mcp-svc:mcp-svc`) — a blanket `chown jol-admin` + `a+rX` is NOT sufficient
+- `git -c safe.directory='*'` wildcards are forbidden (security anti-pattern); use scoped paths only
 
 **Root-cause elimination (permanent, tracked)**:
 1. Fail-visible: jol-git-server should log a startup WARN (or refuse registration) when `JOL_MCP_GIT_REPO_ROOT` is unset or the dir absent — surface the contract at deploy time, not first invocation.
@@ -557,12 +562,12 @@ Add these as Qoder context files (`@filename`) when working on specific tasks:
 |---|---|---|
 | llm-prod-lt01 (§2.2) | ✅ 14/14 PASS (L15/L16 SKIPPED with justification — jol-llm test assets absent on host; code-delivery mechanism required) | `run-20260817-232947.log` |
 | rag-prod-lt01 (§2.1) | ✅ 13/13 PASS — `/health` + `/ready` GREEN (qdrant/minio/ollama up); GDPR secret controls clean | `guest-exec-rag-prod-lt01-20260817-234608.log` |
-| mcp-prod-lt01 (§2.3) | ⚠ 13/14 — M3 FAIL: `JOL_MCP_GIT_REPO_ROOT` unset in `/etc/jol-mcp/mcp.env` (`git_status` falls back to non-existent `/repos`) | `guest-exec-mcp-prod-lt01-20260817-234649.log` |
+| mcp-prod-lt01 (§2.3) | ✅ **14/14 PASS** — M3 remediated 2026-08-18 (procedure + lessons in §2.3); Change History recorded in `docs/servers/mcp-prod-lt01.md` | `guest-exec-mcp-prod-lt01-20260817-234649.log` (finding), `guest-exec-mcp-prod-lt01-20260818-002317.log` (re-gate) |
 
 Execution path note: admin01 (10.10.10.0/24) is blocked from VLAN 40 SSH/service ports at the MikroTik inter-VLAN firewall; rag/mcp gates therefore ran via `qm guest exec` (qemu-guest-agent) from pve. Host UFW on both VMs was aligned to include 10.10.10.0/24 under snapshots `pre-ufw-admin01-20260817-2341` (rollback points) — dormant until the router-level decision below.
 
 **Tracked follow-ups from the certification run (never silent):**
-1. **M3 remediation** (change-controlled; full procedure in §2.3): set `JOL_MCP_GIT_REPO_ROOT=/opt/jol/repos`, provision a work-tree clone readable by mcp-svc, restart jol-git-server, re-gate M3 end-to-end; permanent fixes = fail-visible startup check + end-to-end smoke + Ansible extraction
+1. **M3 remediation** — ✅ RESOLVED 2026-08-18 (see §2.3 STATUS block + mcp-prod-lt01 Change History). Remaining permanent fixes: fail-visible startup check in jol-git-server, end-to-end deploy smoke, Ansible extraction of MCP deployment
 2. **Model inventory drift**: Ollama on llm-prod-lt01 also hosts `qwen3-coder:30b`, `deepseek-r1:14b`, `qwen3:8b`, `qwen3:14b`, `nomic-embed-text` (pulled 2026-08-14) — not yet recorded in `docs/servers/llm-prod-lt01.md`
 3. **Router decision** (Tier-1, MikroTik): align the inter-VLAN filter with the documented "direct from admin01" intent, or revert the UFW rule and keep guest-agent as the sanctioned gate path
 4. **L15/L16**: deliver jol-llm test assets to llm-prod-lt01, then certify 0-day retention + egress blocking on-host
