@@ -35,3 +35,22 @@
 /llm/config/                        @journeyoflife-org/devops @journeyoflife-org/security
 /llm/deploy/                        @journeyoflife-org/devops @journeyoflife-org/security
 /llm/scripts/security/              @journeyoflife-org/security
+
+# =============================================================================
+# Dual-account four-eyes (docs/security/dual-account-governance.md)
+# @IterVitae = second-signature reviewer identity (read-only member;
+# entries become effective once the org invitation is accepted — until then
+# GitHub treats the paths as having no code owner, so nothing deadlocks).
+# =============================================================================
+
+# SOPS key-management surface — recipients, custody, rollout
+/.sops.yaml                                @journeyoflife-org/security @IterVitae
+/docs/security/sops-recipients-registry.md @journeyoflife-org/security @IterVitae
+/docs/security/dual-account-governance.md  @journeyoflife-org/security @IterVitae
+/docs/compliance/sops-age-key-custody-plan.md @journeyoflife-org/security @IterVitae
+/docs/compliance/sops-c5-jol-hub-reconciliation.md @journeyoflife-org/security @IterVitae
+
+# Architecture decisions and compliance records — second signature
+/docs/adr/                                 @journeyoflife-org/devops @IterVitae
+/docs/compliance/                          @journeyoflife-org/devops @IterVitae
+/docs/security/                            @journeyoflife-org/devops @IterVitae
