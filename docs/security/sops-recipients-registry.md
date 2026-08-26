@@ -30,5 +30,16 @@
 
 | Tree | Template PR | Fleet enablement |
 |---|---|---|
-| Church | jol-infrastructure PR #43 (merged fc0753b) | **GO** — Gate 8 round-trip PASS 2026-08-27 (A1-A6, incl. negative cross-tree test rc=128) |
-| Marketplace | jol-m-compliance PR #8 (merged 7d68113) | **GO** — Gate 8 round-trip PASS 2026-08-27 (A1-A6, incl. negative cross-tree test rc=128) |
+| Church | jol-infrastructure PR #43 (merged fc0753b) | **ROLLED OUT 2026-08-27** — 15 church repos merged (owner-approved admin merges per issue #36; review-required rulesets); jol-compliance PENDING (its required compliance-lint check cannot start: GitHub Actions infra failure, zero-step job failures — local repro 3/3 PASS); archived repos excluded |
+| Marketplace | jol-m-compliance PR #8 (merged 7d68113) | **ROLLED OUT 2026-08-27** — jol-m-data #5, jol-m-infrastructure #14, jol-m-legal #7, jol-m-marketplace #19 merged |
+
+Rollout notes (2026-08-27):
+- detect-secrets false positives on PUBLIC age recipients resolved via
+  `pragma: allowlist secret` (fleet-sanctioned mechanism).
+- jol-llm commit message adapted to its Conventional-Commits commit-msg hook.
+- FINDING: jol-backend-platform, jol-domain-taxonomy, jol-frontend-platform are
+  ARCHIVED on GitHub (read-only since 2026-02-04) — excluded from rollout;
+  ecosystem-map reconciliation owed.
+- FINDING: jol-compliance GitHub Actions runs fail with zero executed steps
+  (runner allocation/org quota suspected); local reproduction of
+  scripts/run-compliance-lint.sh on the PR commit passes 3/3.
