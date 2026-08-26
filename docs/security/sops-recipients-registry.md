@@ -30,5 +30,5 @@
 
 | Tree | Template PR | Fleet enablement |
 |---|---|---|
-| Church | THIS PR (jol-infrastructure flagship) | pending Gate 8 round-trip |
-| Marketplace | companion PR in jol-m-compliance | pending Gate 8 round-trip |
+| Church | jol-infrastructure PR #43 (merged fc0753b) | **GO** — Gate 8 round-trip PASS 2026-08-27 (A1-A6, incl. negative cross-tree test rc=128) |
+| Marketplace | jol-m-compliance PR #8 (merged 7d68113) | **GO** — Gate 8 round-trip PASS 2026-08-27 (A1-A6, incl. negative cross-tree test rc=128) |
