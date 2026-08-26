@@ -1,7 +1,9 @@
-# SOPS age Key Custody Plan (C4) — DRAFT pending owner sign-off
+# SOPS age Key Custody Plan (C4) — APPROVED
 
-> **Status**: DRAFT — decisions D1–D6 marked ⚠ require owner input BEFORE
-> Gate 5 key generation. This document records LOCATIONS AND PROCEDURES ONLY —
+> **Status**: APPROVED — D1–D6 signed off 2026-08-26 (owner directive:
+> accept all architect recommendations; recorded verbatim below).
+> Gate 5 key generation remains conditional on C5 (jol-hub reconciliation).
+> Historical draft state: This document records LOCATIONS AND PROCEDURES ONLY —
 > no key material, share content, or Vaultwarden item names with secrets
 > ever appear here or in git (AGENTS.md §0.1; amendment rule 3).
 > **Basis**: ADR-003 amendment (PR #35, `3dd9fda`) Condition C4;
@@ -21,14 +23,15 @@ same physical container (segregation, amendment rule 1).
 
 | # | Decision | Architect recommendation | Owner decision |
 |---|---|---|---|
-| D1 | Splitting tool | `ssss-split`/`ssss-combine` (apt) — sops has no Shamir feature | ⚠ |
-| D2 | Share 1 location per identity (hot DR) | Offline encrypted USB in the on-site safe; container label only, no content description | ⚠ |
-| D3 | Share 2 location per identity (cold DR) | Sealed+signed envelope, off-site (bank safe deposit or trusted third location); separate building from Share 1 | ⚠ |
-| D4 | Share 3 location per identity (cyber DR) | age-encrypted archive (encrypted with the OTHER tree's recovery recipient is FORBIDDEN; use a dedicated DR-only recipient generated at Gate 5 and immediately Shamir-split itself, OR store inside Vaultwarden emergency-access item) — decide which | ⚠ |
-| D5 | Rehearsal cadence | Quarterly: reconstruct from 2 shares, verify public key, decrypt fixture; log result below | ⚠ |
-| D6 | Revocation trigger list | Suspected share exposure, personnel/custodian change, identity rotation (12-month default), Vaultwarden compromise | ⚠ |
+| D1 | Splitting tool | `ssss-split`/`ssss-combine` (apt) — sops has no Shamir feature | ACCEPTED 2026-08-26 |
+| D2 | Share 1 location per identity (hot DR) | Offline encrypted USB in the on-site safe; container label only, no content description | ACCEPTED 2026-08-26 |
+| D3 | Share 2 location per identity (cold DR) | Sealed+signed envelope, off-site (bank safe deposit or trusted third location); separate building from Share 1 | ACCEPTED 2026-08-26 |
+| D4 | Share 3 location per identity (cyber DR) | Dedicated DR-only recipient generated at Gate 5, itself immediately Shamir-split; Vaultwarden emergency-access item is the fallback (owner accepted recommendation, 2026-08-26) | ACCEPTED 2026-08-26 |
+| D5 | Rehearsal cadence | Quarterly: reconstruct from 2 shares, verify public key, decrypt fixture; log result below | ACCEPTED 2026-08-26 |
+| D6 | Revocation trigger list | Suspected share exposure, personnel/custodian change, identity rotation (12-month default), Vaultwarden compromise | ACCEPTED 2026-08-26 |
 
 Single-owner note: all three custodian roles are currently one person.
+Residual risk formally ACCEPTED by owner 2026-08-26 (same directive).
 Compensating control = time-locked locations (safe deposit opening hours,
 sealed-envelope tamper evidence) + rehearsal log; record acceptance of this
 residual risk with the sign-off below (ISO 27001 A.5.9 risk acceptance).
@@ -50,7 +53,7 @@ residual risk with the sign-off below (ISO 27001 A.5.9 risk acceptance).
 |---|---|---|---|---|---|---|
 | — | — | — | — | — | — | no rehearsal yet |
 
-## 5. Procedure (executed only after D1–D6 sign-off + Gate 4 PR #37 merged)
+## 5. Procedure (unblocked: D1–D6 signed off; PR #37 merged bd17f16; pending C5 only)
 
 1. Generate identity with `age-keygen` into a temporary 600 file (never the
    final path); display recipient (public key only).
@@ -67,3 +70,4 @@ residual risk with the sign-off below (ISO 27001 A.5.9 risk acceptance).
 | Date | Change | Evidence |
 |------|--------|----------|
 | 2026-08-26 | Plan drafted — DRAFT, all D1–D6 decisions pending owner sign-off; Gate 5 remains blocked | ADR-003 amendment C4; issue #36 |
+| 2026-08-26 | APPROVED — owner directive accepts all architect recommendations (D1–D6) + single-custodian residual risk; C4 CLOSED; Gate 5 gated on C5 only | chat directive 2026-08-26; PR #38 (fc5056e) |
