@@ -1,0 +1,13 @@
+# JOL Platform — SOPS creation rules (ADR-003 amendment, PR #35; Gate 7 publication)
+# TREE: Church Platform (/opt/jol/**) — recipient age-jol ONLY.
+# Cross-tree recipients are a segregation incident (amendment rule 1).
+# Private key: Vaultwarden SOPS-Custody (authoritative) + Shamir custody,
+# see docs/compliance/sops-age-key-custody-plan.md. This file holds the
+# PUBLIC recipient only (jol-hub sops-validate convention, C5-R1).
+creation_rules:
+  - path_regex: \.enc\.ya?ml$
+    age: age17ne7fvag6gxedsgs4yzpefqe5t8uefp4ldezrc7ajfqyjad79g5qsv0rn2
+  - path_regex: \.enc\.json$
+    age: age17ne7fvag6gxedsgs4yzpefqe5t8uefp4ldezrc7ajfqyjad79g5qsv0rn2
+  - path_regex: ^secrets/encrypted/
+    age: age17ne7fvag6gxedsgs4yzpefqe5t8uefp4ldezrc7ajfqyjad79g5qsv0rn2
