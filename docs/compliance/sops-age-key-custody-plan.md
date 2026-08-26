@@ -40,12 +40,12 @@ residual risk with the sign-off below (ISO 27001 A.5.9 risk acceptance).
 
 | Share ID | Location class | Specific location (no content) | Custodian | Sealed | Date |
 |---|---|---|---|---|---|
-| JOL-S1 | D2 hot DR | LUKS stick DR-JOL (ext4 SHARE-JOL), custody/ dir, on-site safe pending placement | owner | ☐ safe placement pending | 2026-08-27 |
-| JOL-S2 | D3 cold DR | staged 600 at workstation custody dir; owner to seal envelope -> off-site | owner | ☐ pending | 2026-08-27 |
-| JOL-S3 | D4 cyber DR | staged 600 at workstation custody dir; owner to upload as Vaultwarden secure item | owner | ☐ pending | 2026-08-27 |
-| JOLM-S1 | D2 hot DR | LUKS stick DR-JOLM (ext4 SHARE-JOLM), custody/ dir, on-site safe pending placement | owner | ☐ safe placement pending | 2026-08-27 |
-| JOLM-S2 | D3 cold DR | staged 600 at workstation custody dir; owner to seal envelope -> off-site | owner | ☐ pending | 2026-08-27 |
-| JOLM-S3 | D4 cyber DR | staged 600 at workstation custody dir; owner to upload as Vaultwarden secure item | owner | ☐ pending | 2026-08-27 |
+| JOL-S1 | D2 hot DR | LUKS stick DR-JOL (ext4 SHARE-JOL), custody/ dir, on-site safe | owner | ☑ | 2026-08-27 |
+| JOL-S2 | D3 cold DR | sealed envelope, off-site (owner-attested) | owner | ☑ | 2026-08-27 |
+| JOL-S3 | D4 cyber DR | Vaultwarden SOPS-Custody folder (owner-attested) | owner | ☑ | 2026-08-27 |
+| JOLM-S1 | D2 hot DR | LUKS stick DR-JOLM (ext4 SHARE-JOLM), custody/ dir, on-site safe | owner | ☑ | 2026-08-27 |
+| JOLM-S2 | D3 cold DR | sealed envelope, off-site (owner-attested) | owner | ☑ | 2026-08-27 |
+| JOLM-S3 | D4 cyber DR | Vaultwarden SOPS-Custody folder (owner-attested) | owner | ☑ | 2026-08-27 |
 
 ## 4. DR rehearsal log
 
@@ -73,3 +73,4 @@ residual risk with the sign-off below (ISO 27001 A.5.9 risk acceptance).
 | 2026-08-26 | Plan drafted — DRAFT, all D1–D6 decisions pending owner sign-off; Gate 5 remains blocked | ADR-003 amendment C4; issue #36 |
 | 2026-08-26 | APPROVED — owner directive accepts all architect recommendations (D1–D6) + single-custodian residual risk; C4 CLOSED; Gate 5 gated on C5 only | chat directive 2026-08-26; PR #38 (fc5056e) |
 | 2026-08-27 | Gate 5 EXECUTED — dual identities generated (recipients age17ne7f... / age1h6knx...), M=2/N=3 split, rehearsal PASS both trees, S1 shares on LUKS sticks (digest-verified), S2/S3 staged for owner placement. Design correction recorded: shares carry the BARE key line only (ssss 128-char limit truncates commented identity files) | issue #36; digest evidence in issue comment |
+| 2026-08-27 | Custody CLOSED — owner attests: sticks in safe (LUKS volumes closed), S2 envelopes sealed off-site, identities + LUKS passphrases + S3 shares in Vaultwarden SOPS-Custody folder; ALL staged workstation share copies shredded. Zero share material remains on the workstation | terminal evidence 2026-08-27; issue #36 |
