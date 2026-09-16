@@ -11,7 +11,7 @@ updates:
       - "dependencies"
       - "ci-cd"
     reviewers:
-      - "journeyoflife-org/platform-team"
+      - "journeyoflife-org/devops"
 
   - package-ecosystem: "terraform"
     directory: "/terraform/bootstrap"
