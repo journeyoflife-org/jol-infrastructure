@@ -1,0 +1,46 @@
+# Baseline evidence — Jolarca rename migration (captured 2026-08-31T22:30:07+03:00)
+
+## OS identities
+jolm:x:984:
+jolm-dev:x:983:jol
+jolm-app:x:997:984::/nonexistent:/usr/sbin/nologin
+
+## Tree layout
+drwxr-xr-x 9 root     root     4096 Aug 14 18:31 .
+drwxr-xr-x 9 root     root     4096 Aug 14 17:28 ..
+drwxr-xr-x 2 root     root     4096 Aug 14 17:28 backups
+drwxr-xr-x 2 root     root     4096 Aug 14 17:28 certs
+drwxr-x--- 2 jolm-app jolm     4096 Aug 14 17:28 data
+drwxr-x--- 2 jolm-app jolm     4096 Aug 14 18:31 logs
+drwxrwx--- 7 jolm-app jolm-dev 4096 Aug 27 23:56 repos
+drwx------ 2 root     root     4096 Aug 14 17:28 secrets
+drwxr-xr-x 2 root     root     4096 Aug 14 17:28 tmp
+
+## Repo inventory + remotes
+-- jol-m-compliance
+origin	https://github.com/journeyoflife-org/jol-m-compliance.git (fetch)
+origin	https://github.com/journeyoflife-org/jol-m-compliance.git (push)
+eng/step30-retention-code
+-- jol-m-data
+origin	https://github.com/journeyoflife-org/jol-m-data.git (fetch)
+origin	https://github.com/journeyoflife-org/jol-m-data.git (push)
+main
+-- jol-m-infrastructure
+origin	https://github.com/journeyoflife-org/jol-m-infrastructure.git (fetch)
+origin	https://github.com/journeyoflife-org/jol-m-infrastructure.git (push)
+main
+-- jol-m-legal
+origin	https://github.com/journeyoflife-org/jol-m-legal.git (fetch)
+origin	https://github.com/journeyoflife-org/jol-m-legal.git (push)
+compliance/step26-vmi-isaf-record
+-- jol-m-marketplace
+origin	https://github.com/journeyoflife-org/jol-m-marketplace.git (fetch)
+origin	https://github.com/journeyoflife-org/jol-m-marketplace.git (push)
+main
+
+## Script hashes
+74bea770f5e9ed669911768596639a6a38dadeaf186876f9ab4bc17f3e30e3dc  scripts/provision-jolm-tree.sh
+a2ec05649f2c4f02ba8a19189d1c54bf5c557a5722af8a97d356321991eea182  scripts/maintenance/git-fleet-sync.sh
+
+## Rename surface count (excl .git/.venv/.idea/__pycache__/node_modules)
+434

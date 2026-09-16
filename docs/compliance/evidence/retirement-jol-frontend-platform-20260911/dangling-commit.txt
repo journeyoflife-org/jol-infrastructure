@@ -1,0 +1,5 @@
+610c8d31cdbac30d0fc064133d4a356ddcc923e6
+author=Gintaras Kazlauskas <journey4oflife@gmail.com>
+date=2026-08-27T00:58:09+03:00
+subject=security: enable SOPS — Church (/opt/jol/**) tree recipient + secrets/encrypted root
+status=SUPERSEDED by 24c4e13 seven minutes later; unreachable from every ref at capture time (git fsck dangling)

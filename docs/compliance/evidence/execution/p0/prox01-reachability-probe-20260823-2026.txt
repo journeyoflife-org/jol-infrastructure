@@ -1,0 +1,36 @@
+# Phase 0 evidence — prox01 reachability probe (READ-ONLY, zero mutations)
+# Executed: 2026-08-23T20:26:42Z from admin01 (10.10.10.50, VLAN 10)
+
+--- iDRAC 10.10.10.11 ICMP ---
+2 packets transmitted, 2 received, 0% packet loss, time 1035ms
+rtt min/avg/max/mdev = 0.301/0.332/0.363/0.031 ms
+--- prox01 10.60.60.10 ICMP ---
+2 packets transmitted, 0 received, +2 errors, 100% packet loss, time 1022ms
+pipe 2
+--- prox01 TCP 22 ---
+bash: connect: No route to host
+bash: line 1: /dev/tcp/10.60.60.10/22: No route to host
+unreachable
+--- prox01 TCP 8006 ---
+bash: connect: No route to host
+bash: line 1: /dev/tcp/10.60.60.10/8006: No route to host
+unreachable
+--- VLAN 60 gateway 10.60.60.1 ICMP ---
+2 packets transmitted, 0 received, 100% packet loss, time 1022ms
+
+--- hv01 10.60.60.20 TCP 22 ---
+bash: connect: No route to host
+bash: line 1: /dev/tcp/10.60.60.20/22: No route to host
+unreachable
+--- rag 10.40.40.10 TCP 22 ---
+bash: connect: No route to host
+bash: line 1: /dev/tcp/10.40.40.10/22: No route to host
+unreachable
+
+# VERDICT: VLAN 10 (iDRAC/admin) reachable; VLAN 60 and VLAN 40 targets all
+# 'No route to host' => MikroTik RB5009 inter-VLAN path DOWN (documented SPOF G6).
+# prox01 hardware inventory BLOCKED pending edge restoration.
+# racadm requires interactive iDRAC credentials (not automatable per no-secrets-in-CLI rule):
+#   ssh root@10.10.10.11 'racadm hwinventory | grep -A 4 -i Processor'
+#   ssh root@10.10.10.11 'racadm hwinventory | grep -A 6 -i DIMM'
+# On prox01 once reachable: lscpu; free -h; ip -br link

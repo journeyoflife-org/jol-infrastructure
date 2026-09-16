@@ -34,9 +34,11 @@ ufw_allowed_tcp_ports:
 ufw_allowed_udp_ports: []
 
 # --- Per-role firewall ports (applied via host_vars or role-specific tasks) ---
-# mcp-prod-lt01:  3000 (MCP API)
-# her-prod-lt01:  8080 (Hermes agent API)
-# Note: rag-prod-lt01 service ports are managed in JourneyOfLife/jol-rag-server.
+# mcp-prod-lt01:  stdio-only, no network port (MCP servers run under systemd
+#                 with tail -f /dev/null | python -m ... — no TCP listener)
+# her-prod-lt01:  no runtime listener (C1 CRITICAL — declarative-only;
+#                 8080 is a placeholder until runtime is identified + audited)
+# Note: rag-prod-lt01 service ports are managed in journeyoflife-org/jol-rag-server.
 
 # --- Monitoring ---
 monitoring_enabled: true

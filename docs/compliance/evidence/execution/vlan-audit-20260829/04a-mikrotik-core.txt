@@ -1,0 +1,186 @@
+============================================================
+CMD: /system clock print
+============================================================
+time: 17:44:58
+
+                  date: 2026-08-29
+
+  time-zone-autodetect: yes
+
+        time-zone-name: Europe/Vilnius
+
+            gmt-offset: +03:00
+
+            dst-active: yes
+
+============================================================
+CMD: /ip address print
+============================================================
+Flags: D - DYNAMIC
+
+Columns: ADDRESS, NETWORK, INTERFACE
+
+#   ADDRESS          NETWORK       INTERFACE
+
+;;; defconf
+
+0   192.168.88.1/24  192.168.88.0  bridge
+
+;;; MGMT
+
+1   10.10.10.1/24    10.10.10.0    vlan10
+
+;;; WORK
+
+2   10.20.20.1/24    10.20.20.0    vlan20
+
+;;; LLM
+
+3   10.30.30.1/24    10.30.30.0    vlan30
+
+;;; BACKEND
+
+4   10.40.40.1/24    10.40.40.0    vlan40
+
+;;; MARKET
+
+5   10.50.50.1/24    10.50.50.0    vlan50
+
+;;; PROXMOX
+
+6   10.60.60.1/24    10.60.60.0    vlan60
+
+;;; STORAGE
+
+7   10.70.70.1/24    10.70.70.0    vlan70
+
+;;; HOME/IoT GW
+
+8   10.80.80.1/24    10.80.80.0    vlan80
+
+9 D 192.168.32.2/24  192.168.32.0  ether1
+
+============================================================
+CMD: /interface vlan print
+============================================================
+Flags: R - RUNNING
+
+Columns: NAME, MTU, ARP, VLAN-ID, INTERFACE
+
+#   NAME     MTU  ARP      VLAN-ID  INTERFACE
+
+0 R vlan10  1500  enabled       10  bridge1
+
+1 R vlan20  1500  enabled       20  bridge1
+
+2 R vlan30  1500  enabled       30  bridge1
+
+3 R vlan40  1500  enabled       40  bridge1
+
+4 R vlan50  1500  enabled       50  bridge1
+
+5 R vlan60  1500  enabled       60  bridge1
+
+6 R vlan70  1500  enabled       70  bridge1
+
+;;; HOME/IoT
+
+7 R vlan80  1500  enabled       80  bridge1
+
+============================================================
+CMD: /interface ethernet print
+============================================================
+Flags: R - RUNNING; S - SLAVE
+
+Columns: NAME, MTU, MAC-ADDRESS, ARP, SWITCH
+
+#    NAME           MTU  MAC-ADDRESS        ARP      SWITCH
+
+0 R  ether1        1500  D0:EA:11:4B:67:9F  enabled  switch1
+
+1 RS ether2        1500  D0:EA:11:4B:67:A0  enabled  switch1
+
+2 RS ether3        1500  D0:EA:11:4B:67:A1  enabled  switch1
+
+3  S ether4        1500  D0:EA:11:4B:67:A2  enabled  switch1
+
+4  S ether5        1500  D0:EA:11:4B:67:A3  enabled  switch1
+
+5  S ether6        1500  D0:EA:11:4B:67:A4  enabled  switch1
+
+6  S ether7        1500  D0:EA:11:4B:67:A5  enabled  switch1
+
+7 RS ether8        1500  D0:EA:11:4B:67:A6  enabled  switch1
+
+8  S sfp-sfpplus1  1500  D0:EA:11:4B:67:A7  enabled  switch1
+
+============================================================
+CMD: /interface bridge port print
+============================================================
+Flags: I - INACTIVE; H - HW-OFFLOAD
+
+Columns: INTERFACE, BRIDGE, HW, HORIZON, TRUSTED, FAST-LEAVE, BPDU-GUARD, EDGE, POINT-TO-POINT, PVID
+
+#    INTERFACE     BRIDGE   HW   HORIZON  TRUSTED  FA  BP  EDGE  POIN  PVID
+
+;;; defconf
+
+0 IH ether4        bridge   yes  none     no       no  no  auto  auto     1
+
+;;; defconf
+
+1 IH ether5        bridge   yes  none     no       no  no  auto  auto     1
+
+;;; defconf
+
+2 IH ether6        bridge   yes  none     no       no  no  auto  auto     1
+
+;;; defconf
+
+3 IH ether7        bridge   yes  none     no       no  no  auto  auto     1
+
+;;; defconf
+
+4  H ether8        bridge   yes  none     no       no  no  auto  auto     1
+
+;;; defconf
+
+5 IH sfp-sfpplus1  bridge   yes  none     no       no  no  auto  auto     1
+
+;;; TRUNK TO DELL
+
+6    ether2        bridge1  yes  none     no       no  no  auto  auto     1
+
+;;; TO WR841N HOME/IoT
+
+7    ether3        bridge1  yes  none     no       no  no  auto  auto    80
+
+============================================================
+CMD: /interface bridge vlan print
+============================================================
+Flags: D - DYNAMIC
+
+Columns: BRIDGE, VLAN-IDS, CURRENT-TAGGED, CURRENT-UNTAGGED
+
+#   BRIDGE   VLAN-IDS  CURRENT-TAGGED  CURRENT-UNTAGGED
+
+0   bridge1        10  ether2          bridge1
+
+1   bridge1        20  ether2          bridge1
+
+2   bridge1        30  ether2          bridge1
+
+3   bridge1        40  ether2          bridge1
+
+4   bridge1        50  ether2          bridge1
+
+5   bridge1        60  ether2          bridge1
+
+6   bridge1        70  ether2          bridge1
+
+7   bridge1        80  bridge1         ether3
+
+;;; added by pvid
+
+8 D bridge1         1                  bridge1
+

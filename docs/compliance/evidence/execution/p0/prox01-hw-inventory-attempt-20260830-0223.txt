@@ -1,0 +1,65 @@
+# D1 evidence — prox01 hardware inventory attempt #2 (READ-ONLY, zero mutations)
+# Executed: 2026-08-29T23:23Z (2026-08-30T02:23 Europe/Vilnius) from jol workstation
+# Predecessor: prox01-reachability-probe-20260823-2026.txt (edge DOWN at that time)
+
+--- prox01 10.60.60.10 ICMP ---
+2 packets transmitted, 2 received, 0% packet loss, time 1049ms
+rtt min/avg/max/mdev = 0.682/0.693/0.704/0.011 ms
+# Edge restored since vlan-audit-20260829 F1 resolution.
+
+--- prox01 TCP 22 ---
+PORT22-OPEN (TCP handshake completes)
+
+--- prox01 SSH handshake (client -v) ---
+debug1: Connection established.
+debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: Server host key: ssh-ed25519 SHA256:w9StGqGOstSXKSPorgOm5dNgHtGRiCFke16gECopOmM
+debug1: Host '10.60.60.10' is known and matches the ED25519 host key. (known_hosts:29)
+debug1: Authentications that can continue: publickey,password
+debug1: Offering public key: /home/jol/.ssh/id_ed25519 ED25519 SHA256:5wSsJlMIANmTTvucmimQqYlVGsyVmq8daj7nOZkWlws
+debug1: Authentications that can continue: publickey,password
+debug1: Offering public key: journeyoflife-platform ED25519 SHA256:EnOjKXinbTf5WfSqpIsmn4Ye8Y27UCLx72oz7579778
+debug1: No more authentication methods to try.
+root@10.60.60.10: Permission denied (publickey,password).
+# Same result for user jol-admin. Full KEX completes — sshd itself is healthy.
+
+--- prox01 SSH via pve-prod-hv01 (nested hop) ---
+root@10.60.60.10:      Permission denied (publickey,password).
+jol-admin@10.60.60.10: Permission denied (publickey,password).
+
+--- prox01 TCP 8006 (TLS) ---
+8006-OPEN; PVE web UI responds with HTML (<!DOCTYPE html>...) — PVE daemon stack alive.
+
+# VERDICT: prox01 is UP (ICMP + TLS/8006 + healthy sshd KEX, OpenSSH_10.0p2
+# Debian-7+deb13u4 = Debian 13 Trixie, consistent with PVE 9.x). CPU, RAM and
+# VM list CANNOT be retrieved by automation: none of the available keys
+# (workstation id_ed25519 SHA256:5wSs..., agent key journeyoflife-platform
+# SHA256:EnOj..., hv01 root keys) are authorized on prox01.
+# This is a PROVISIONING GAP (new host, authorized_keys never populated from
+# the fleet key set), not a host fault.
+#
+# COMPLIANCE FLAG F-D1: sshd offers 'publickey,password' — the documented SSH
+# policy (docs/servers/prox01.md) states password authentication DISABLED
+# (key-only). Verify /etc/ssh/sshd_config* PasswordAuthentication from the
+# console; if 'yes', remediate change-controlled and rebuild AIDE baseline.
+#
+# CPU/RAM/VM status: ⚠ UNVERIFIED — manual check required (console or iDRAC
+# virtual console; iDRAC racadm additionally requires interactive credentials
+# per no-secrets-in-automation rule):
+#   lscpu                                            # record both sockets
+#   free -h                                          # total host RAM
+#   qm list                                          # VM inventory
+#   pct list                                         # LXC inventory
+#   zpool list -o name,size,alloc,health             # rpool (+ data if exists)
+#   zpool status data 2>/dev/null                    # raidz2 present?
+#   pveversion -v                                    # PVE version pin evidence
+#   grep -r PasswordAuthentication /etc/ssh/sshd_config.d/ /etc/ssh/sshd_config
+# iDRAC alternative (from admin01, interactive):
+#   ssh root@10.10.10.11 'racadm hwinventory | grep -A 4 -i Processor'
+#   ssh root@10.10.10.11 'racadm hwinventory | grep -A 6 -i DIMM'
+#
+# UNBLOCK ACTION: authorize the fleet workstation key(s) on prox01
+# (/root/.ssh/authorized_keys and/or jol-admin), then re-run this probe;
+# record results in docs/servers/prox01.md Hardware table and re-compute
+# docs/servers/prox01-capacity-baseline.md headroom.

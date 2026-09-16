@@ -67,3 +67,41 @@ err-disabled — it was a host-side physical link fault (step 4).
 5. On the host: verify static IP config matches the port table
    (netplan; NIC name may have changed after the swap).
 6. Verify: `ping <host IP>` from admin01, then SSH key-only access.
+
+### Router (inter-VLAN) outage — all prod segments unreachable at once
+
+Applies when 10.10.10.1 (MikroTik RB5009) is silent while same-L2 controls
+(10.10.10.2 switch, 10.10.10.30 pbs01) still answer — e.g. INC-2026-0814
+(2026-08-15/16). Evidence: `docs/security/incident-20260814-router-outage.md`,
+postmortem `docs/security/postmortem-20260816-inc-router-outage.md`.
+
+1. Preserve evidence first (`date; last -x; ip neigh; ping ladder` to
+   `/tmp/inc-<date>-router/`). Never delete anything.
+2. Confirm scope with controls: pbs01 + switch UP, every gateway SVI DOWN
+   → router fault (not host, not switch fabric).
+3. Emergency console path (verified in INC-2026-0814): admin01 enp5s0 is
+   cabled to router **ether8** on the defconf bridge — DHCP 192.168.88.0/24,
+   router reachable at **192.168.88.1** (webfig/SSH/WinBox 8291) even when
+   all VLAN SVIs are dead. Credentials from Vaultwarden only; no guessing
+   (router logs every failed login).
+4. Read-only triage on the router: `/system resource print` (uptime →
+   reboot time), `/log print` (`rebooted without proper shutdown` =
+   power event), `/ip address print` + `/interface print` (SVIs present?
+   trunk R-flag?), `/interface bridge host print` (are host MACs learned
+   via ether2?), `/ip arp print`.
+5. Interpretation:
+   - SVIs missing → config lost → rebuild from `docs/network/dell-n2048-port-table.md`
+     §1 + `docs/architecture/trust-boundaries.md` (logged emergency change).
+   - SVIs present, trunk up, hosts learned, but no ARP replies/forwarding →
+     stuck forwarding state after unclean power events. Remediation that
+     worked: sustained ARP/ICMP pressure (keep pinging all SVIs from
+     admin01) until the state clears; otherwise bounce the bridge port
+     (`/interface bridge port set ether2 ...` disable/enable) as a logged
+     change. Note: device-mode blocks the packet sniffer; use local
+     `tcpdump`/`arping` on admin01 instead.
+6. Verify (ladder): gateways → prod hosts → VMs (`qm status` on pve) →
+   Prometheus scrape `up` → inter-VLAN `curl http://10.30.30.10:11434/api/version`
+   from a VLAN-40 host → refresh llm-prod-lt01 backup
+   (`scripts/maintenance/backup-ollama-models.sh`) if the nightly was missed.
+7. Post-incident: rotate any credential used in the session, capture
+   `/system history print`, remove temp rules, postmortem within 48h.

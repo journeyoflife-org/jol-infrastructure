@@ -1,0 +1,4 @@
+24c4e1304f396fac81bd2786933c16acd771ed64
+author=Gintaras Kazlauskas <journey4oflife@gmail.com>
+date=2026-08-27T01:05:05+03:00
+subject=sec(sops): enable SOPS recipient + encrypted-secrets root

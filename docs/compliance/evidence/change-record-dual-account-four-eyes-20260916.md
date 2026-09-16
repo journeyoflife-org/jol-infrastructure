@@ -241,3 +241,15 @@ gh api --method DELETE orgs/journeyoflife-org/teams/security/memberships/IterVit
 **If the review gate is too restrictive**:
 - Remove IterVitae from `security` team (keeps org membership)
 - Or temporarily disable `protect-main` rulesets (not recommended — breaks branch integrity)
+
+---
+
+## Post-Activation Test (2026-09-16)
+
+**Test 1 (count=0)**: PR #2 on jol-domain-taxonomy merged without IterVitae approval — self-approval allowed because author is a code owner. **NOT substantive.**
+
+**Test 2 (count=1)**: All 17 rulesets updated to `required_approving_review_count: 1`. PR #3 created — shows `REVIEW_REQUIRED` + `BLOCKED`, but `--admin` bypass still merges. **PROCEDURAL, not technically enforced.**
+
+**Conclusion**: The four-eyes control is a **formal/procedural** control, not a technically-enforced segregation of duties. It relies on owner discipline to use IterVitae for approvals, with admin bypass as an emergency escape hatch. This matches the dual-account governance design (memory 4b9a3916: "at the cost of accepting residual risk — same person operating both accounts").
+
+**Ruleset update**: All 17 repos updated count 0 → 1 via `PUT /repos/<org>/<repo>/rulesets/<id>` with modified `pull_request.parameters.required_approving_review_count`. Verified 17/17 at count=1.

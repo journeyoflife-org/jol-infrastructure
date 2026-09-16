@@ -1,0 +1,9 @@
+--- service-level probes ---
+== Ollama from admin01 (documented allowed path 10.10->30) ==
+{"version":"0.32.6"}== RAG /health (VLAN 40) ==
+FAIL (expected: MikroTik blocks 10.10->40 SSH/services)
+== SSH banner tests (TCP 22) ==
+SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4 <- 10.60.60.10 :22 OPEN
+SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4 <- 10.60.60.20 :22 OPEN
+10.40.40.10 :22 CLOSED/FILTERED
+SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.1 <- 10.30.30.10 :22 OPEN

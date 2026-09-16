@@ -33,11 +33,11 @@ acceptance (no ECC, no IPMI, single NIC/PSU).
 
 ## Virtual Machines
 
-| VMID | Hostname        | vCPU | RAM   | Disk   | IP          |
-|------|-----------------|------|-------|--------|-------------|
-| 100  | rag-prod-lt01   | 4    | 24 GB | 100 GB | 10.40.40.10 |
-| 101  | mcp-prod-lt01   | 2    | 8 GB  | 50 GB  | 10.40.40.11 |
-| 102  | her-prod-lt01   | 2    | 8 GB  | 50 GB  | 10.40.40.12 |
+| VMID | Hostname        | vCPU | RAM   | Balloon min | Disk   | IP          |
+|------|-----------------|------|-------|-------------|--------|-------------|
+| 100  | rag-prod-lt01   | 4    | 24 GB | —           | 100 GB | 10.40.40.10 |
+| 101  | mcp-prod-lt01   | 2    | 8 GB  | —           | 50 GB  | 10.40.40.11 |
+| 102  | her-prod-lt01   | 2    | 4 GB  | 2 GB        | 50 GB  | 10.40.40.12 |
 
 ## Network
 
@@ -92,3 +92,4 @@ acceptance (no ECC, no IPMI, single NIC/PSU).
 |------------|--------|----------|
 | 2026-07-31 | vmbr0/vmbr1 migrated to nic1 (Gi1/0/5, VLAN 60) / nic0 (Gi1/0/6, VLAN 40) | n2048-config-2026-07-31.txt |
 | 2026-08-08 | Network incident: vmbr1 had drifted to an isolated NAT bridge (`bridge-ports none`, hypervisor IP 10.40.40.1 squatting the gateway, iptables MASQUERADE to vmbr0) — contradicting the documented L2 design. Restored: `bridge-ports nic0`, NAT rule and host IP removed; rag/mcp/her reachable again from admin01 | `/etc/network/interfaces.bak-20260808`, n2048 session 2026-08-08 |
+| 2026-09-01 | Memory reconfiguration: her-prod-lt01 reduced 8 GB → 4 GB (no runtime, C1 CRITICAL, actual RSS was 2.4 GB). Balloon min set to 2048 MB. Total VM allocation 40 GB → 36 GB. Host available: 29 Gi / 62 Gi (53% free). Storage confirmed LVM thin on NVMe (no ZFS pool). ZFS ARC cap at 6.28 GB exists in `/etc/modprobe.d/zfs.conf` but is moot (no ZFS). | live `qm set 102` session 2026-09-01 |

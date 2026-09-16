@@ -1,0 +1,20 @@
+2026-08-29T17:50:48Z
+F1 RESOLUTION — Gi1/0/6 re-cabled (CAT6, pve nic0)
+
+== pve nic0 ==
+nic0 UP 1c:1b:0d:9f:4e:a6 <BROADCAST,MULTICAST,UP,LOWER_UP>  Speed: 1000Mb/s  Duplex: Full  Link detected: yes
+
+== VLAN40 ladder (3 probes each, from admin01) ==
+10.40.40.10 : 0% loss, rtt avg 0.965 ms
+10.40.40.11 : 0% loss, rtt avg 1.388 ms
+10.40.40.12 : 0% loss, rtt avg 731 ms (VM-side wakeup artifact, not fabric)
+
+== RAG gates ==
+{"status":"healthy","version":"1.0.0"}
+{"status":"ready","services":{"qdrant":"up","minio":"up","ollama":"up"}}
+
+== MCP stdio gate (qm guest exec 101) ==
+initialize OK -> serverInfo jol-git-server v1.29.0; tools/list OK (git_log, git_status)
+
+== router ARP vlan40 ==
+10.40.40.10 BC:24:11:BC:F3:8C reachable / 10.40.40.11 BC:24:11:DA:95:69 reachable / 10.40.40.12 BC:24:11:BE:6D:9D stale->answered pings

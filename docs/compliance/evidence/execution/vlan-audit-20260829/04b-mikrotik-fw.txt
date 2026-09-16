@@ -1,0 +1,265 @@
+============================================================
+CMD: /ip arp print
+============================================================
+Flags: D - DYNAMIC; C - COMPLETE
+
+Columns: ADDRESS, MAC-ADDRESS, INTERFACE, STATUS
+
+ #    ADDRESS         MAC-ADDRESS        INTERFACE  STATUS
+
+ 0 DC 10.80.80.199    0C:80:63:61:6E:8F  vlan80     reachable
+
+ 1 DC 192.168.88.249  04:D9:F5:C8:BA:36  bridge     reachable
+
+ 2 DC 10.60.60.20     1C:1B:0D:9F:4E:A8  vlan60     stale
+
+ 3 DC 10.60.60.10     24:6E:96:CB:FF:CD  vlan60     reachable
+
+ 4 DC 10.10.10.30     10:60:4B:B1:74:36  vlan10     stale
+
+ 5 DC 10.10.10.50     04:D9:F5:C8:BA:35  vlan10     delay
+
+ 6 DC 10.30.30.10     24:4B:FE:55:B1:C4  vlan30     reachable
+
+ 7 DC 10.10.10.11     4C:D9:8F:31:AB:CC  vlan10     stale
+
+ 8 DC 192.168.32.1    B0:0A:D5:6F:67:F5  ether1     reachable
+
+ 9 D  10.40.40.11                        vlan40     failed
+
+10 D  10.40.40.10                        vlan40     failed
+
+11 D  10.40.40.12                        vlan40     failed
+
+============================================================
+CMD: /ip firewall filter print
+============================================================
+Flags: X - disabled, I - invalid; D - dynamic
+
+ 0  D ;;; special dummy rule to show fasttrack counters
+
+      chain=forward action=passthrough
+
+
+
+ 1    ;;; temp allow ping
+
+      chain=input action=accept protocol=icmp
+
+
+
+ 2    ;;; defconf: accept established,related,untracked
+
+      chain=input action=accept
+
+      connection-state=established,related,untracked
+
+
+
+ 3    ;;; defconf: drop invalid
+
+      chain=input action=drop connection-state=invalid
+
+
+
+ 4    ;;; defconf: accept ICMP
+
+      chain=input action=accept protocol=icmp
+
+
+
+ 5    ;;; defconf: accept to local loopback (for CAPsMAN)
+
+      chain=input action=accept dst-address=127.0.0.1
+
+
+
+ 6    ;;; defconf: drop all not coming from LAN
+
+      chain=input action=drop in-interface-list=!LAN
+
+
+
+ 7    ;;; defconf: accept in ipsec policy
+
+      chain=forward action=accept ipsec-policy=in,ipsec
+
+
+
+ 8    ;;; defconf: accept out ipsec policy
+
+      chain=forward action=accept ipsec-policy=out,ipsec
+
+
+
+ 9    ;;; defconf: fasttrack
+
+      chain=forward action=fasttrack-connection hw-offload=yes
+
+      connection-state=established,related
+
+
+
+10    ;;; defconf: accept established,related, untracked
+
+      chain=forward action=accept
+
+      connection-state=established,related,untracked
+
+
+
+11    ;;; defconf: drop invalid
+
+      chain=forward action=drop connection-state=invalid
+
+
+
+12    ;;; defconf: drop all from WAN not DSTNATed
+
+      chain=forward action=drop connection-state=new
+
+      connection-nat-state=!dstnat in-interface-list=WAN
+
+
+
+13    ;;; INPUT: established,related
+
+      chain=input action=accept connection-state=established,related
+
+
+
+14    ;;; INPUT: MGMT VLAN can manage router
+
+      chain=input action=accept in-interface=vlan10
+
+
+
+15    ;;; INPUT: drop from WAN
+
+      chain=input action=drop in-interface-list=WAN-LIST
+
+
+
+16 X  ;;; INPUT: default drop
+
+      chain=input action=drop
+
+
+
+17    ;;; FWD: established,related
+
+      chain=forward action=accept connection-state=established,related
+
+
+
+18    ;;; FWD: LAN->Internet
+
+      chain=forward action=accept out-interface=ether1
+
+      in-interface-list=LAN-LIST
+
+
+
+19    ;;; FWD: MGMT->Internet (for updates)
+
+      chain=forward action=accept in-interface=vlan10 out-interface=ether1
+
+
+
+20    ;;; FWD: MGMT VLAN full access
+
+      chain=forward action=accept in-interface=vlan10
+
+
+
+21    ;;; FWD: Workstations -> LLM
+
+      chain=forward action=accept in-interface=vlan20 out-interface=vlan30
+
+
+
+22    ;;; FWD: Workstations -> BACKEND
+
+      chain=forward action=accept in-interface=vlan20 out-interface=vlan40
+
+
+
+23    ;;; FWD: Workstations -> MARKET
+
+      chain=forward action=accept in-interface=vlan20 out-interface=vlan50
+
+
+
+24    ;;; FWD: Workstations -> PROXMOX
+
+      chain=forward action=accept in-interface=vlan20 out-interface=vlan60
+
+
+
+25    ;;; FWD: Proxmox->Storage
+
+      chain=forward action=accept in-interface=vlan60 out-interface=vlan70
+
+
+
+26    ;;; FWD: BACKEND->Storage
+
+      chain=forward action=accept in-interface=vlan40 out-interface=vlan70
+
+
+
+27    ;;; FWD: block traffic from STORAGE VLAN
+
+      chain=forward action=drop in-interface=vlan70
+
+
+
+28    ;;; FWD: PVE->PBS backup
+
+      chain=forward action=accept protocol=tcp in-interface=vlan60
+
+      out-interface=vlan10 dst-port=8007
+
+
+
+29    ;;; FWD: default drop VLAN->VLAN
+
+      chain=forward action=drop in-interface=bridge1 out-interface=bridge1
+
+============================================================
+CMD: /ip firewall nat print
+============================================================
+Flags: X - disabled, I - invalid; D - dynamic
+
+ 0    ;;; defconf: masquerade
+
+      chain=srcnat action=masquerade out-interface-list=WAN
+
+      ipsec-policy=out,none
+
+
+
+ 1    ;;; NAT all LANs
+
+      chain=srcnat action=masquerade out-interface=ether1
+
+============================================================
+CMD: /system ntp client print
+============================================================
+enabled: no
+
+        mode: unicast
+
+     servers:
+
+         vrf: main
+
+  freq-drift: 0 PPM
+
+      status: stopped
+
+============================================================
+CMD: /system history print
+============================================================
+
+
