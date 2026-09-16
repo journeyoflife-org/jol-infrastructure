@@ -29,13 +29,14 @@
 set -uo pipefail   # NOTE: deliberately NOT `set -e` (D3): one failing repo
                    # must not abort the fleet pass; failures are aggregated.
 
-REPO_ROOTS=("/opt/jol/repos" "/opt/jol-m/repos")
+REPO_ROOTS=("/opt/jol/repos" "/opt/jolarca/repos")
 
 # D4: repos that must never be touched by bulk sync.
 #   jol-mcp-servers       -> remote 'mcp-prod' = production deploy push
 #   jol-qoder-history     -> no remote; Tier-1 sensitive exports
-#   jol-m-qoder-history   -> no remote; Tier-1 sensitive exports (tree B)
-SKIP_LIST=("jol-mcp-servers" "jol-qoder-history" "jol-m-qoder-history")
+#   (jolarca-qoder-history: re-add here only if/when that repo is created;
+#    legacy jol-m-qoder-history confirmed absent from org 2026-08-31)
+SKIP_LIST=("jol-mcp-servers" "jol-qoder-history")
 
 # D4: remote names matching these patterns are treated as production
 # deployment channels and refuse bulk push even if not in SKIP_LIST.
@@ -76,8 +77,9 @@ in_skip_list() {
 
 secret_path_preflight() {   # repo dir; returns 1 + prints offenders on hit
   local repo="$1" hits
-  hits=$(cd "$repo" && { git diff --cached --name-only; git ls-files --others --exclude-standard; } \
-         | grep -E "$SECRET_PATH_RE" || true)
+  hits=$( { git -C "$repo" diff --cached --name-only
+            git -C "$repo" ls-files --others --exclude-standard
+          } | grep -E "$SECRET_PATH_RE" || true)
   if [[ -n "$hits" ]]; then
     printf '%s\n' "$hits" | sed 's/^/      BLOCKED PATH: /'
     return 1
@@ -174,7 +176,10 @@ sync_repo() {
 }
 
 echo "=== JOL Fleet Sync ==="
-echo "mode: $([[ $MODE_REPORT -eq 1 ]] && echo report || { [[ $MODE_PUSH -eq 1 ]] && echo "stage+commit+push" || echo "stage+commit"; })"
+if [[ $MODE_REPORT -eq 1 ]]; then _mode="report"
+  elif [[ $MODE_PUSH -eq 1 ]]; then _mode="stage+commit+push"
+  else _mode="stage+commit"; fi
+echo "mode: $_mode"
 [[ $MODE_STAGE -eq 1 ]] && echo "commit message: $COMMIT_MSG"
 echo "skip list: ${SKIP_LIST[*]}"
 echo ""

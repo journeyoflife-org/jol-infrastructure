@@ -104,6 +104,11 @@ These ports are verified against the repository source of truth.
 
 ### Notes on Gi1/0/6 (pve-prod-hv01 nic0 — vmbr1)
 
+- **2026-08-29**: found **UNCABLED** during the fleet VLAN audit (F1) — pve
+  nic0 NO-CARRIER, all 3 VLAN 40 VMs unreachable. Fixed on-site: CAT6 patch
+  Gi1/0/6 ↔ nic0 (Killer E2500 `1C:1B:0D:9F:4E:A6`); 1000 FD link, full
+  verification ladder PASS — `docs/network/vlan-audit-2026-08-29.md`.
+  Action: label + strain-relief this cable.
 - **Drift found 2026-08-08**: running config still `switchport access vlan 50`
   with description "MARKET-market01", although D5 (2026-07-31) resolved the
   attached device as pve-prod-hv01 nic0 and the 2026-07-31 MAC audit shows
@@ -151,7 +156,8 @@ These ports are verified against the repository source of truth.
 | Gi1/0/11 | prox01 | R640 Node 1 — primary Proxmox NIC | 60 | access | 10.60.60.10 | In provisioning (2026-08-06) |
 | Gi1/0/12 | prox02 | R640 Node 2 — Proxmox NIC | 60 | access | 10.60.60.11 | Ready |
 | Gi1/0/13 | prox03 | R640 Node 3 — Proxmox NIC | 60 | access | 10.60.60.12 | Ready |
-| Gi1/0/20 | stor01-mgmt | HP P4500 — management NIC | 10 | access | 10.10.10.30 | Ready |
+| Gi1/0/20 | stor01-mgmt | HP P4500 — management NIC | 10 | access | 10.10.10.30 | **Active** (2026-08-16 INC-2026-0814: pbs01 verified reachable here; 2026-08-29 reconciled: second cable is Gi1/0/22 — see Gi1/0/22 row) |
+| Gi1/0/22 | stor01-iscsi2 | HP P4500 — VLAN 70 NIC (**physically holds 10.70.70.10**, CAT6 since 2026-08-29, 1000 FD, 0 errors) | 70 | access | 10.70.70.10 | **Active** (2026-08-29: CAT5→CAT6 swap verified; doc-vs-physical drift corrected here — the old CAT5 carried the same IP) |
 | Gi1/0/40 | idrac-prox01 | R640 Node 1 — iDRAC | 10 | access | 10.10.10.11 | **Active** (iDRAC reachable, 2026-08-06) |
 | Gi1/0/41 | idrac-prox02 | R640 Node 2 — iDRAC | 10 | access | 10.10.10.12 | Ready |
 | Gi1/0/42 | idrac-prox03 | R640 Node 3 — iDRAC | 10 | access | 10.10.10.13 | Ready |
@@ -162,8 +168,8 @@ These ports are verified against the repository source of truth.
 
 | Port | Hostname | Description | VLAN | Mode | IP | Action |
 |------|----------|-------------|------|------|----|--------|
-| Gi1/0/21 | stor01-iscsi1 | HP P4500 — iSCSI NIC #1 | 70 | access | 10.70.70.10 | Assign VLAN 70, set IP |
-| Gi1/0/22 | stor01-iscsi2 | HP P4500 — iSCSI NIC #2 | 70 | access | 10.70.70.11 | Assign VLAN 70, set IP |
+| Gi1/0/21 | stor01-iscsi1 | HP P4500 — iSCSI NIC #1 (**not cabled** — verified 2026-08-29; the live VLAN 70 NIC is on Gi1/0/22) | 70 | access | — | Cabling deferred (D6) |
+| Gi1/0/22 | stor01-iscsi2 | HP P4500 — iSCSI NIC #2 (cabled, CAT6 2026-08-29, live with 10.70.70.10) | 70 | access | 10.70.70.10 | **Done** (see §3 Gi1/0/22 row) |
 | Gi1/0/23 | prox01-iscsi | R640 Node 1 — iSCSI NIC | 70 | access | 10.70.70.20 | Assign VLAN 70 |
 | Gi1/0/24 | prox02-iscsi | R640 Node 2 — iSCSI NIC | 70 | access | 10.70.70.21 | Assign VLAN 70 |
 | Gi1/0/25 | prox03-iscsi | R640 Node 3 — iSCSI NIC | 70 | access | 10.70.70.22 | Assign VLAN 70 |

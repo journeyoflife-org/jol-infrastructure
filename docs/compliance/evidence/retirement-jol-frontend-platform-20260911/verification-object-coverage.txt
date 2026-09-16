@@ -1,0 +1,29 @@
+### source ODB inventory (type, size, oid)
+source object count: 14
+blob 1074 416071083224baf739caa4c1f68d9b0b24cf617d
+blob 2152 9a5acedff56aee2e6731a444d283bf6071c49bcc
+blob 222 7d1ad91daa8ddc1298d30ee514bbfbeb642d479e
+blob 455 e7cbb90bd39766ebe41d7cd0a64d96913468ca91
+blob 684 00b9425a946d4d745292ed1986662aaf542370db
+blob 768 95fe7425e088a8b4f7cc396f60fdfa746bb979cf
+commit 1008 0ab71a5540985ed347cee78b470ee49c3c7e5445
+commit 1340 24c4e1304f396fac81bd2786933c16acd771ed64
+commit 1369 610c8d31cdbac30d0fc064133d4a356ddcc923e6
+tree 110 0d35eaffda1904035519722fdcb1d29dab30227b
+tree 182 006b4f48780e50a8c2bce8c6911baa17e9dcd283
+tree 182 18847f9cfbb3fa80a0f4264e29608a7f44917237
+tree 36 d9d7dad9149ba8d1523bc1894005c0345368dc98
+tree 37 dadc56bad457fef2c11fce8f032d997aade19bce
+
+### rebuild both bundles from scratch (authoritative, from the real repo)
+
+### restore each bundle into isolated clones and union their object sets
+recovered unique objects: 14
+
+### set difference: source objects NOT recoverable from the bundles
+MISSING_COUNT=0  -> FULL OBJECT COVERAGE CONFIRMED
+
+### byte-level equality of every recovered object vs source (sha1 identity)
+ALL_OBJECTS_BYTE_IDENTICAL_AFTER_RESTORE
+COVERAGE_PROOF_DONE
+RC=0

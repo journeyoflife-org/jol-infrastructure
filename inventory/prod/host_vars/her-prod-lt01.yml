@@ -1,0 +1,58 @@
+# =============================================================================
+# Host variables — her-prod-lt01 (VM 102, 10.40.40.12)
+# Hermes agent orchestration — declarative config only, NO RUNTIME (C1 CRITICAL).
+# NOTE: secrets NEVER live here — Ansible Vault / cloud-init only.
+# =============================================================================
+
+# --- Audit watches (host-specific secret material) ---
+# No secret material on this host yet (no runtime deployed).
+jol_audit_secret_files: []
+
+# --- Application layout ---
+# No application deployed yet — C1 CRITICAL finding in
+# docs/audit/AUDIT_REPORT.md blocks runtime deployment until the
+# runtime component is identified and audited (AGENTS.md §2.4).
+jol_repos_root: /opt/jol/repos
+jol_secrets_dir: /opt/jol/repos/secrets
+jol_app_state_dir: /var/lib/jol-hermes
+jol_app_log_dir: /var/log/jol-hermes
+
+# No reference repo clones on this host.
+common_repo_clones: []
+
+# --- Service accounts ---
+# No service account yet (no runtime). The deploy contract in
+# jol-hermes-agents specifies user `hermes` — create when runtime lands.
+jol_service_users: []
+
+# --- Firewall (UFW) — sources restricted per trust boundary ---
+# SSH sources include the VLAN 40 segment and the management segment
+# for hypervisor console access via Proxmox bridge.
+ufw_ssh_allowed_sources:
+  - 10.40.40.0/24
+  - 10.60.60.0/24
+ufw_mgmt_allow_sources:
+  - 10.60.60.0/24          # Proxmox management segment (any port)
+ufw_http_allowed_sources: []    # no HTTP service (no runtime)
+ufw_monitoring_allowed_sources:
+  - 10.40.40.0/24          # no dedicated monitoring segment yet
+
+# No Docker on this host — DOCKER-USER chain guard not applicable.
+docker_guard_enabled: false
+
+# --- Monitoring agent ---
+node_exporter_bind_address: "10.40.40.12"
+
+# --- Log shipping (Promtail -> Loki) ---
+# Loki endpoint not provisioned yet: binary + config are staged, service
+# stays disabled so the deployment never fails on an absent collector.
+promtail_enabled: false
+loki_push_url: "http://loki.monitoring.jol.internal:3100/loki/api/v1/push"
+promtail_log_paths:
+  - /var/log/jol-hermes/*.log
+
+# --- Backup ---
+# VM-level backups via PBS/pve-prod-hv01; qemu-guest-agent installed by
+# the backup_client role for fs-consistent snapshots. No app-level
+# snapshot cron on this host (no local datastore).
+backup_enabled: false

@@ -1,0 +1,5 @@
+100644 blob 9a5acedff56aee2e6731a444d283bf6071c49bcc	.gitignore
+100644 blob 95fe7425e088a8b4f7cc396f60fdfa746bb979cf	.sops.yaml
+100644 blob 416071083224baf739caa4c1f68d9b0b24cf617d	LICENSE
+100644 blob 7d1ad91daa8ddc1298d30ee514bbfbeb642d479e	README.md
+100644 blob e7cbb90bd39766ebe41d7cd0a64d96913468ca91	secrets/encrypted/README.md

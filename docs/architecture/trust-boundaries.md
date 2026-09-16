@@ -50,7 +50,8 @@ Admin workstation (10.10.10.50, VLAN 10)
 VLAN 40 VMs (10.40.40.10-12)
   │
   ├──▶ Ollama (10.30.30.10:11434) — routed, firewall-restricted
-  ├──▶ MCP API (10.40.40.11:3000) — intra-VLAN
+  ├──▶ MCP (mcp-prod-lt01) — stdio-only pipe, no network listener
+  │    (port 3000 deliberately closed; see AGENTS.md §2.3)
   └──▶ Internet — masquerade via MikroTik WAN
 
 pve-prod-hv01 (10.60.60.20)

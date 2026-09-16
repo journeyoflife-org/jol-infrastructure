@@ -1,7 +1,7 @@
 # Qoder Agent Setup (jol-infrastructure)
 
 Canonical Qoder configuration for the jol-infrastructure workspace:
-Codebase Index, Rules, MCP servers, autonomy, and verification.
+Codebase Index, Rules, MCP servers, autonomy, update policy, and verification.
 The Qoder settings UI is the runtime source of truth; keep this page in
 sync when standards change.
 
@@ -80,6 +80,20 @@ Set agent autonomy to **Confirm before executing commands**. Full
 auto-execution is not permitted in this repository given the compliance
 posture (SOC 2 Type II / GDPR / ISO 27001).
 
+## Plugin Update Policy
+
+Automatic Qoder plugin updates are **disabled** (Qoder Settings →
+Plugin Settings → Update Settings → uncheck "Automatically install
+plugin updates when available"). The plugin receives repository code
+context, so a version change is a supply-chain change and is governed
+like every other pinned tool: the installed version is recorded in
+[tool-versions.md](tool-versions.md) and reviewed during the quarterly
+maintenance window (SOC 2 CC8.1).
+
+Rollback: if a newly approved version misbehaves, reinstall the pinned
+build from the JetBrains Marketplace plugin archive and re-run the
+verification checklist below.
+
 ## Verification Checklist
 
 Run these in a fresh Qoder chat and confirm the expected answers:
@@ -92,5 +106,6 @@ Run these in a fresh Qoder chat and confirm the expected answers:
 
 ## See Also
 
+- [QODER.md](../../QODER.md) — AI-assistant behavioral guidelines and repo-specific change-management constraints
 - [pycharm-qodana.md](pycharm-qodana.md) — PyCharm remote development + Qodana
 - [tool-versions.md](tool-versions.md) — pinned tool versions

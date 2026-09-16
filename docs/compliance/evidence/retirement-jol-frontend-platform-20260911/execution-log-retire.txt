@@ -1,0 +1,64 @@
+### gate 1 — recovery evidence must verify end-to-end
+  ok: 14/14 objects recoverable, 0 missing
+
+RECOVERY_VERIFIED — this evidence is sufficient to rebuild the repository.
+gate 1 passed
+
+### gate 2 — target must resolve to exactly the intended path
+readlink -f => /opt/jol/repos/jol-frontend-platform
+gate 2 passed (path + main tip identity confirmed)
+
+### removing /opt/jol/repos/jol-frontend-platform
+
+### gate 3 — post-conditions
+confirmed absent: /opt/jol/repos/jol-frontend-platform
+
+remaining repos under /opt/jol/repos:
+jol-analytics-ai
+jol-auth
+jol-backend-platform
+jol-bitrix24-integration
+jol-compliance
+jol-core
+jol-devops
+jol-domain-taxonomy
+jol-ecommerce-engine
+jol-hermes-agents
+jol-hub
+jol-infrastructure
+jol-link-registry
+jol-llm
+jol-mcp-servers
+jol-rag-server
+jol-repo-template
+jol-scripts
+jol-security
+jol-site-basilica
+jol-site-cathedral
+jol-site-cemetery-care
+jol-site-deanery
+jol-site-diocese
+jol-site-funeral
+jol-site-orthodox
+jol-site-other-church
+jol-site-parish
+jol-site-protestant
+obsidian
+
+evidence retained:
+60K	/opt/jol/repos/jol-infrastructure/docs/compliance/evidence/retirement-jol-frontend-platform-20260911
+0001-sec-sops-enable-SOPS-recipient-encrypted-secrets-roo.patch
+0002-security-enable-SOPS-Church-opt-jol-tree-recipient-s.patch
+dangling-commit.txt
+dangling-tree.txt
+gate8-sops-enablement.bundle
+gate8-superseded-attempt.bundle
+SHA256SUMS.txt
+source-commit.txt
+source-odb-inventory.txt
+source-tree.txt
+verification-object-coverage.txt
+verify-recovery.sh
+
+RETIREMENT_COMPLETE
+RC=0

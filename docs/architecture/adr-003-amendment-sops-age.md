@@ -50,7 +50,7 @@ authorising secret VALUES to be committed in plaintext or as a substitute
 for ADR-003 runtime flows.
 
 1. **Dual identity (segregation)**: exactly TWO age identities —
-   `age-jol` for `/opt/jol/**` repos and `age-jolm` for `/opt/jol-m/**`
+   `age-jol` for `/opt/jol/**` repos and `age-jolarca` for `/opt/jolarca/**`
    repos. No `.sops.yaml` may list recipients of both trees. Cross-tree
    recipients constitute a segregation incident (AGENTS.md §0.2;
    ISO 27001 A.8.13 lineage).
@@ -68,7 +68,7 @@ for ADR-003 runtime flows.
    re-verified on every install; binary checksum verification before first
    execution is mandatory.
 5. **Rollout**: recipients published via security-reviewed PR per tree
-   (`jol-security` for the church tree, `jol-m-compliance` for the
+   (`jol-security` for the church tree, `jolarca-compliance` for the
    marketplace tree); `.sops.yaml` creation rules restricted to explicit
    patterns (`*.enc.yaml`, `secrets/**`); encrypt/decrypt round-trip gate
    must pass per tree before fleet enablement.

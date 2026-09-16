@@ -46,6 +46,39 @@ It fails the pipeline on CRITICAL severity issues.
 2. Tools → Qodana → Run Local Analysis
 3. Review findings in the Qodana tool window
 
+## Qodana History Retention (fleet policy — all 23 journeyoflife-org repos)
+
+Scan history must be retained in **two independent places** (SOC 2 CC7.2
+evidence; survives JetBrains account changes):
+
+| Layer | What it keeps | Retention |
+|-------|---------------|-----------|
+| Qodana Cloud | run-over-run trends, baselines, per-commit reports (`upload-result: true` + `QODANA_TOKEN`) | account lifetime |
+| GitHub Actions artifacts | full SARIF/HTML/JSON report per run (`Archive Qodana report (history)` step) | 90 days per run |
+
+### Activation checklist (per repository)
+1. Repo → Settings → Secrets and variables → Actions → secret `QODANA_TOKEN`
+   (from Qodana Cloud → project → Settings).
+2. Same page → **Variables** → `QODANA_ENABLED=true` (the `qodana-scan` job
+   is skipped unless this variable is set).
+3. Confirm a run appears in Qodana Cloud **and** a `qodana-report-<run id>`
+   artifact is attached to the workflow run.
+
+### Local baseline (optional, Cloud-independent delta tracking)
+```bash
+qodana scan --project-dir . --results-dir ./qodana/results
+# After the first accepted scan, promote the report to a baseline:
+cp ./qodana/results/qodana.sarif.json qodana.sarif.json
+# then add to qodana.yaml:  baseline: qodana.sarif.json
+```
+Subsequent runs then report only findings new vs. the committed baseline.
+
+### Account continuity note
+Qodana Cloud projects are bound to the JetBrains account/organization that
+created them. If the organization account changes, prior Cloud history does
+NOT migrate — the GitHub artifact archive is the durable fallback, which is
+why it is mandatory fleet-wide.
+
 ## See Also
 
 - [qoder-setup.md](qoder-setup.md) — Qoder agent configuration (index, rules, MCP, verification)

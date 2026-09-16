@@ -92,35 +92,9 @@ The DPIA must be re-assessed (Art. 35(11)) if any of these occur:
   retention must be enforced and tested).
 - Pilot scales beyond the Lithuanian user base.
 
-## 5. Re-check entries
-
-### 2026-08-26 — SOPS git-at-rest key management (ADR-003 amendment, C3)
-
-**Scope checked**: introduction of SOPS+age encryption of committed
-configuration files across the fleet, per the merged ADR-003 amendment
-(PR #35, commit `3dd9fda`).
-
-**Assessment**:
-- The processing under review is **cryptographic key management**, not a new
-  personal-data processing activity: no new data categories, subjects,
-  processors, or transfers arise. Keys protect Art. 9-adjacent configuration
-  material; they are not themselves personal data.
-- WP248 re-score: **no new criterion met**. Criteria 4/5/7 remain those of the
-  underlying pilot DPIA; key management is a **security measure** (Art. 32)
-  within that scope, not a separate processing operation.
-- The amendment's dual-identity segregation (age-jol / age-jolm) *reinforces*
-  Art. 25 by-design separation rather than merging audit surfaces.
-
-**Decision**: covered by the existing mandatory pilot DPIA scope; **no new
-DPIA triggered**. This entry satisfies amendment Condition C3. Residual
-obligation: key lifecycle (custody, rotation, revocation) is documented in
-`docs/compliance/sops-age-key-custody-plan.md` and must be referenced from
-the full DPIA when it is drafted (Required Action #1 above).
-
 ## Change History
 
 | Date | Change | Evidence |
 |------|--------|----------|
-| 2026-08-26 | Document first committed to main (previously untracked on pilot branch `docs/db-pilot-tenant-isolation-delta`); C3 re-check §5 added: SOPS key management assessed — no new DPIA triggered | ADR-003 amendment PR #35; git history |
 | 2026-08-23 | Trigger check executed — DPIA MANDATORY (3/9 criteria met, threshold 2) | this document |
 | 2026-08-23 | Ratified-spec reconciliation: verbatim Art. 35(1)+35(3)(a) mandatory declaration added to §3 | Step 2 ratified task spec |

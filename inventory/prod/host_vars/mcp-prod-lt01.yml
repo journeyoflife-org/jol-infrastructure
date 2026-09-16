@@ -1,0 +1,59 @@
+# =============================================================================
+# Host variables — mcp-prod-lt01 (VM 101, 10.40.40.11)
+# Model Context Protocol servers: tool registry, agent integrations.
+# NOTE: secrets NEVER live here — Ansible Vault / cloud-init only.
+# =============================================================================
+
+# --- Audit watches (host-specific secret material) ---
+jol_audit_secret_files:
+  - /etc/jol-mcp/mcp.env
+
+# --- Application layout (manual deployment per repository strategy;
+#     app at /opt/jol-mcp-servers via bare git repo + post-receive hook,
+#     deployed 2026-08-03; canonical state/log roots adopted here) ---
+jol_repos_root: /opt/jol/repos
+jol_secrets_dir: /opt/jol/repos/secrets
+jol_app_state_dir: /var/lib/jol-mcp
+jol_app_state_owner: mcp-svc
+jol_app_log_dir: /var/log/jol-mcp
+
+# No reference repo clones on this host — deployment arrives via
+# `git push mcp-prod main` to /opt/jol/git/jol-mcp-servers.git.
+common_repo_clones: []
+
+# --- Service accounts (least privilege; stdio servers run as mcp-svc) ---
+jol_service_users:
+  - mcp-svc      # MCP server runtime (nologin, pre-existing)
+
+# --- Firewall (UFW) — sources restricted per trust boundary ---
+# SSH sources include the NAT gateway (10.40.40.1) path via the Proxmox
+# bridge; removing the mgmt segment locks out hypervisor console access.
+ufw_ssh_allowed_sources:
+  - 10.40.40.0/24
+  - 10.60.60.0/24
+ufw_mgmt_allow_sources:
+  - 10.60.60.0/24          # Proxmox management segment (any port)
+ufw_http_allowed_sources: []    # no HTTP service on this host (stdio MCP)
+ufw_monitoring_allowed_sources:
+  - 10.40.40.0/24          # no dedicated monitoring segment yet
+
+# No Docker on this host — DOCKER-USER chain guard not applicable.
+docker_guard_enabled: false
+
+# --- Monitoring agent ---
+node_exporter_bind_address: "10.40.40.11"
+
+# --- Log shipping (Promtail -> Loki) ---
+# Loki endpoint not provisioned yet: binary + config are staged, service
+# stays disabled so the deployment never fails on an absent collector.
+promtail_enabled: false
+loki_push_url: "http://loki.monitoring.jol.internal:3100/loki/api/v1/push"
+promtail_log_paths:
+  - /var/log/jol-mcp/*.log
+  - /var/log/jol-mcp/*.jsonl
+
+# --- Backup ---
+# VM-level backups via PBS/pve-prod-hv01; qemu-guest-agent installed by
+# the backup_client role for fs-consistent snapshots. No app-level
+# snapshot cron on this host (no local datastore).
+backup_enabled: false
