@@ -20,6 +20,9 @@ updates:
     labels:
       - "dependencies"
       - "terraform"
+    ignore:
+      - dependency-name: "hashicorp/aws"
+        versions: ["6.x"]
 
   - package-ecosystem: "terraform"
     directory: "/terraform/environments/dev"
@@ -28,6 +31,9 @@ updates:
     labels:
       - "dependencies"
       - "terraform"
+    ignore:
+      - dependency-name: "hashicorp/aws"
+        versions: ["6.x"]
 
   - package-ecosystem: "terraform"
     directory: "/terraform/environments/staging"
@@ -36,6 +42,9 @@ updates:
     labels:
       - "dependencies"
       - "terraform"
+    ignore:
+      - dependency-name: "hashicorp/aws"
+        versions: ["6.x"]
 
   - package-ecosystem: "terraform"
     directory: "/terraform/environments/prod"
@@ -45,6 +54,9 @@ updates:
       - "dependencies"
       - "terraform"
       - "production"
+    ignore:
+      - dependency-name: "hashicorp/aws"
+        versions: ["6.x"]
 
   - package-ecosystem: "pip"
     directory: "/"
