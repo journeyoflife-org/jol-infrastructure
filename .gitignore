@@ -85,5 +85,12 @@ qodana-results/
 sbom/
 soc2-evidence-*/
 
+# --- Audit recovery artifacts (local-only, never commit) ---
+docs/audit/recovery-bundles/
+*.bundle
+
 # --- Terraform bootstrap backend template ---
 terraform/bootstrap/backend.tpl
+
+# Session-local staging (audit scratch, temp scripts)
+.staging/
