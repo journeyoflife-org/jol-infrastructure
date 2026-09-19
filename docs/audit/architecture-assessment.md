@@ -47,6 +47,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 
 **Professional Opinion:** **PARTIALLY REMEDIATED — severity reduced from CRITICAL to MEDIUM.** The repo now has codeql (static analysis), compliance-check (Art.9 handling), and secrets-scan (credential detection). The remaining gap (dependency-review + lockfile-validation) is lower risk than the original finding. Effort: ~4 hours. Risk if not fixed: transitive dependency vulns, non-reproducible builds.
 
+**Professional Opinion:** **CRITICAL — must fix before pilot go-live.** `jol-rag-server` is the PRIMARY application handling GDPR Art.9 religious data (special category). The current 1-workflow CI is insufficient for SOC 2 CC7.2 (monitoring) and ISO 27001 A.12.4 (logging/monitoring). Priority order: (1) security-scan (secrets + SCA), (2) dependency-review (transitive vulns), (3) lockfile-validation (reproducible builds), (4) codeql (static analysis), (5) compliance-check (Art.9 data handling). Use `jol-ecommerce-engine` as reference (7 workflows, most complete Python repo). Effort: ~2 days. Risk if not fixed: audit finding, potential data breach from undetected vuln.
+
 ---
 
 #### H3: 10 site spokes have broken CI references — reusable workflows don't exist in `.github` repo
@@ -125,6 +127,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Finding:** ~~The repo has both `.env.example` and `.env` files. If `.env` contains real secrets and is committed, this is a security violation.~~ **VERIFIED 2026-09-19: FALSE POSITIVE.** `.env` is in `.gitignore` (line 36), is NOT tracked by git (`git ls-files .env` returns empty), and has NEVER been in git history (`git log --all --full-history -- .env` returns empty). No credential exposure occurred.  
 **Impact:** ~~Potential credential exposure.~~ **NONE** — properly gitignored.  
 **Recommendation:** ~~Verify `.env` is in `.gitignore`.~~ **CLOSED — no action required.**
+
+**Professional Opinion:** **VERIFY IMMEDIATELY — potential security violation.** This is a potential credential exposure. Check: (1) `cat /opt/jol/repos/jol-auth/.gitignore | grep .env` — if `.env` is listed, it's safe, (2) `git log --all --full-history -- .env` — if it shows commits, credentials were exposed, (3) if exposed, rotate ALL credentials in the `.env` file immediately. Effort: ~30 minutes to verify, ~2 hours to rotate if needed. Risk if not fixed: credential exposure, potential data breach. This is a security-critical check.
 
 **Professional Opinion:** **VERIFY IMMEDIATELY — potential security violation.** This is a potential credential exposure. Check: (1) `cat /opt/jol/repos/jol-auth/.gitignore | grep .env` — if `.env` is listed, it's safe, (2) `git log --all --full-history -- .env` — if it shows commits, credentials were exposed, (3) if exposed, rotate ALL credentials in the `.env` file immediately. Effort: ~30 minutes to verify, ~2 hours to rotate if needed. Risk if not fixed: credential exposure, potential data breach. This is a security-critical check.
 
