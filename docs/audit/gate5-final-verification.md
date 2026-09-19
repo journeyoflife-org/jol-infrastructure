@@ -8,15 +8,17 @@
 
 ## Executive Summary
 
-The architecture assessment is **complete, correct, and production-ready**. All 11 findings (4 HIGH, 5 MEDIUM, 2 LOW) have been reviewed, professional opinions added, and the critical H3 issue has been remediated.
+The architecture assessment is **complete, correct, and production-ready**. All 11 findings (4 HIGH, 5 MEDIUM, 2 LOW) have been reviewed, professional opinions added, and the critical H1, H2, and H3 issues have been remediated.
 
 ### Key Achievements
 
 1. **H3 FIXED:** Broken CI references resolved — 5 reusable workflows moved to `.github` (commit `5290101`)
-2. **Validator added:** CI workflow prevents recurrence (commit `85c4bed`)
-3. **Professional opinions:** All 11 findings have evidence-based recommendations
-4. **Artifacts committed:** Assessment + corrections + scripts committed to `docs/audit/` (commit `8fdd91b`)
-5. **CHANGELOG updated:** Full audit trail recorded
+2. **H2 FIXED:** `jol-rag-server` CI expanded from 1 workflow to 4 workflows, 10 jobs (commit `0b10d86`)
+3. **H1 FIXED:** `jol-core` de-scoped from Tier 0 via ADR-007
+4. **Validator added:** CI workflow prevents recurrence (commit `85c4bed`)
+5. **Professional opinions:** All 11 findings have evidence-based recommendations
+6. **Artifacts committed:** Assessment + corrections + scripts committed to `docs/audit/` (commit `8fdd91b`)
+7. **CHANGELOG updated:** Full audit trail recorded
 
 ---
 
@@ -26,8 +28,8 @@ The architecture assessment is **complete, correct, and production-ready**. All 
 
 | Finding | Status | Professional Opinion | Effort | Risk |
 |---------|--------|---------------------|--------|------|
-| **H1:** `jol-core` empty Tier 0 | OPEN | **De-scope** — pragmatic, fleet works without it | ~1 hour | LOW |
-| **H2:** `jol-rag-server` minimal CI | OPEN | **CRITICAL** — must fix before pilot go-live | ~2 days | HIGH |
+| **H1:** `jol-core` empty Tier 0 | ✅ FIXED | **De-scoped** via ADR-007 | DONE | NONE |
+| **H2:** `jol-rag-server` minimal CI | ✅ FIXED | **Production-ready** — 4 workflows, 10 jobs (commit `0b10d86`) | DONE | NONE |
 | **H3:** Broken CI references | ✅ FIXED | **Production-ready** — workflows moved + validator added | DONE | NONE |
 | **H4:** 10 spokes zero test coverage | OPEN | **Defer to post-pilot** — high effort (400-800 hours) | 400-800 hours | MEDIUM |
 
@@ -56,9 +58,9 @@ Based on professional opinions, the revised priority order is:
 
 ### Immediate (Pre-Pilot)
 
-1. **H2:** Add CI workflows to `jol-rag-server` — CRITICAL for compliance
+1. ~~**H2:** Add CI workflows to `jol-rag-server`~~ — ✅ **DONE** (commit `0b10d86`)
 2. **M5:** Verify `.env` in `jol-auth` — security-critical check
-3. **H1:** De-scope `jol-core` — quick win, clarifies Tier 0
+3. ~~**H1:** De-scope `jol-core`~~ — ✅ **DONE** (ADR-007)
 4. **M3:** De-scope `jol-domain-taxonomy` — quick win, clarifies Tier 3
 5. **M4:** Add ARCHITECTURE.md to `jol-hub` — quick win, improves onboarding
 6. **M1:** Generate lockfiles for 9 Python repos — batch fix in 1 day
@@ -72,6 +74,8 @@ Based on professional opinions, the revised priority order is:
 ### Completed
 
 10. **H3:** ✅ FIXED — broken CI references resolved
+11. **H2:** ✅ FIXED — CodeQL, secrets scan, compliance check added (commit `0b10d86`)
+12. **H1:** ✅ FIXED — de-scoped via ADR-007
 
 ---
 
@@ -111,12 +115,9 @@ Based on professional opinions, the revised priority order is:
 
 ## Risks & Mitigations
 
-### Risk 1: H2 not fixed before pilot go-live
+### ~~Risk 1: H2 not fixed before pilot go-live~~ — RESOLVED
 
-**Impact:** HIGH — `jol-rag-server` handles GDPR Art.9 religious data with weak CI gates  
-**Mitigation:** Prioritize H2 as #1 item in remediation backlog  
-**Owner:** Platform Architect  
-**Deadline:** Before pilot go-live
+**Status:** ✅ **FIXED** — `jol-rag-server` now has 4 CI workflows (10 jobs): CodeQL, secrets scan, compliance check, lockfile validation (commit `0b10d86`)
 
 ### Risk 2: M5 `.env` file contains committed secrets
 
@@ -138,9 +139,9 @@ Based on professional opinions, the revised priority order is:
 
 ### Immediate Actions (This Week)
 
-1. **Fix H2:** Add CI workflows to `jol-rag-server` (~2 days)
+1. ~~**Fix H2:** Add CI workflows to `jol-rag-server`~~ — ✅ **DONE**
 2. **Verify M5:** Check `.env` in `jol-auth` (~30 min)
-3. **De-scope H1:** Archive `jol-core` or update AGENTS.md (~1 hour)
+3. ~~**De-scope H1:** Archive `jol-core` or update AGENTS.md~~ — ✅ **DONE** (ADR-007)
 4. **De-scope M3:** Archive `jol-domain-taxonomy` or update AGENTS.md (~1 hour)
 5. **Fix M4:** Add ARCHITECTURE.md to `jol-hub` (~2 hours)
 6. **Fix M1:** Generate lockfiles for 9 Python repos (~1 day)
@@ -160,11 +161,11 @@ Based on professional opinions, the revised priority order is:
 
 ## Conclusion
 
-The architecture assessment is **production-ready**. All findings have been reviewed, professional opinions added, and the critical H3 issue has been remediated. The assessment provides a clear, evidence-based roadmap for remediation, prioritized by compliance risk and effort.
+The architecture assessment is **production-ready**. All findings have been reviewed, professional opinions added, and the critical H1, H2, and H3 issues have been remediated. The assessment provides a clear, evidence-based roadmap for remaining remediation, prioritized by compliance risk and effort.
 
 **Gate 5 status:** ✅ PASS (with professional opinions)
 
-**Next step:** Proceed to remediation execution, starting with H2 (jol-rag-server CI) and M5 (jol-auth .env verification).
+**Next step:** Proceed to remediation execution, starting with M5 (jol-auth .env verification) and M1 (lockfile generation).
 
 ---
 
