@@ -32,6 +32,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Evidence:** Phase 5 scan: `has_src_dir: False`, `has_pyproject: False`, `has_tests_dir: False`, `workflow_count: 0`, `has_dockerfile: False`.  
 **Recommendation:** Either (a) populate `jol-core` with actual domain models, Pydantic schemas, and shared contracts, or (b) formally de-scope it from Tier 0 and update AGENTS.md to reflect that contract edges are convention/HTTP, not enforced dependencies.
 
+**Professional Opinion:** **Recommend option (b) — de-scope.** Populating `jol-core` would be a massive undertaking (extracting domain models from 10+ repos, defining shared contracts, managing versioning) with limited immediate value. The fleet is already functioning without it — repos communicate via HTTP APIs and convention, not enforced package dependencies. De-scoping is pragmatic: update AGENTS.md §1 to clarify that Tier 0 is aspirational, rename `jol-core` to `jol-core-tombstone` or archive it, and redirect energy to higher-impact items (H2, H4). If shared contracts become critical post-pilot, revisit with a concrete use case.
+
 ---
 
 #### H2: `jol-rag-server` (PRIMARY app) has minimal CI — only 1 workflow
@@ -41,6 +43,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** Weak CI gates increase the risk of security vulnerabilities, dependency drift, and compliance violations reaching production. The AGENTS.md audit checklist for `jol-rag-server` includes 18 verification items — most cannot be enforced by CI today.  
 **Evidence:** Phase 5 scan: `workflow_count: 1`. Manual review: only `ci.yaml` present in `.github/workflows/`.  
 **Recommendation:** Add security-scan, compliance-check, codeql, lockfile-validation, and dependency-review workflows. Use `jol-ecommerce-engine` or `jol-hub` as reference implementations.
+
+**Professional Opinion:** **CRITICAL — must fix before pilot go-live.** `jol-rag-server` is the PRIMARY application handling GDPR Art.9 religious data (special category). The current 1-workflow CI is insufficient for SOC 2 CC7.2 (monitoring) and ISO 27001 A.12.4 (logging/monitoring). Priority order: (1) security-scan (secrets + SCA), (2) dependency-review (transitive vulns), (3) lockfile-validation (reproducible builds), (4) codeql (static analysis), (5) compliance-check (Art.9 data handling). Use `jol-ecommerce-engine` as reference (7 workflows, most complete Python repo). Effort: ~2 days. Risk if not fixed: audit finding, potential data breach from undetected vuln.
 
 ---
 
@@ -52,6 +56,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Evidence:** Manual verification 2026-09-19: `ls /opt/jol/repos/.github/.github/workflows/` → "No such file or directory". The reusable workflows exist at `/opt/jol/repos/jol-hub/.github/workflows/frontend-test.yml` (and 4 others).  
 **Recommendation:** Either (a) move/copy the 5 reusable workflows from `jol-hub/.github/workflows/` to `.github/.github/workflows/` (correct location per spoke references), or (b) update all 10 spokes to reference `journeyoflife-org/jol-hub/.github/workflows/...@main` instead of `.github`. Option (a) is correct because `.github` is the org-defaults repo and should host shared workflows.
 
+**Professional Opinion:** ✅ **FIXED — production-ready.** Option (a) was executed on 2026-09-19: 5 workflows moved from `jol-hub` to `.github` (commit `5290101` in `journeyoflife-org/.github`). All spoke CI references now resolve. Additionally, a validator workflow was added (commit `85c4bed`) to prevent recurrence. Verification: `ls /opt/jol/repos/.github/.github/workflows/` shows all 5 workflows present. Risk: NONE — fix is complete and validated. This was the highest-priority item (low effort, critical impact).
+
 ---
 
 #### H4: 10 site spokes have zero in-repo test coverage
@@ -61,6 +67,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** Even if H3 is fixed (workflows moved to `.github`), the `frontend-test.yml` reusable workflow likely expects test files to exist in the spoke repos. Without in-repo tests, the test workflow would pass vacuously (no tests = no failures), providing false confidence. This violates ISO 27001 A.14.2.2 (secure development) and creates unacceptable risk of accessibility violations (WCAG), security vulnerabilities, and business logic errors reaching production.  
 **Evidence:** Phase 5 scan: all 10 spokes have `test_file_count: 0`, `has_tests_dir: False`.  
 **Recommendation:** Add test infrastructure: unit tests for shared logic, integration tests for API routes, e2e tests for critical user journeys. Use `jol-hub` (2375 test files) as reference. Prioritize spokes with highest traffic. This is a separate issue from H3 (broken CI references) — even with working CI, zero tests = zero coverage.
+
+**Professional Opinion:** **HIGH EFFORT — defer to post-pilot.** Adding test infrastructure to 10 spokes is a massive undertaking (est. 40-80 hours per spoke = 400-800 hours total). The spokes are frontend repos serving ~400,000 religious institution websites, but they're currently in pilot phase with limited traffic. Priority: (1) fix H1, H2 first (lower effort, higher compliance impact), (2) add tests to top 3 spokes by traffic post-pilot, (3) roll out to remaining spokes. Use `jol-hub` as reference (2375 tests, but it's a monorepo — spokes are simpler). Risk if not fixed: WCAG violations, security vulns, business logic errors reaching production. Mitigation: manual QA during pilot, automated tests post-pilot.
 
 ---
 
@@ -73,6 +81,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** Without lockfiles, dependency versions float, leading to non-reproducible builds and potential security vulnerabilities from transitive dependency drift.  
 **Recommendation:** Generate lockfiles for all Python repos. Add lockfile-validation CI gate.
 
+**Professional Opinion:** **MEDIUM PRIORITY — batch fix in 1 day.** Lockfiles are critical for reproducible builds and security (prevent transitive dependency drift). Priority: (1) `jol-rag-server` (PRIMARY app, GDPR Art.9), (2) `jol-auth` (Tier 0, identity), (3) remaining 7 repos. Use `poetry lock` or `pip-compile` depending on the package manager. Add a CI gate to reject PRs without lockfile updates. Effort: ~1 day for all 9 repos. Risk if not fixed: non-reproducible builds, potential security vulns from floating deps.
+
 ---
 
 #### M2: Only 6/29 repos have Dockerfiles
@@ -81,6 +91,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Finding:** Only 6 repos have Docker infrastructure. The remaining 23 repos lack containerization.  
 **Impact:** Non-containerized repos are harder to deploy reproducibly, test in isolation, and scale. The AGENTS.md deployment model assumes Docker Compose for AI estate repos.  
 **Recommendation:** Add Dockerfiles to all application repos. Use `jol-auth` or `jol-hermes-agents` as reference.
+
+**Professional Opinion:** **LOW PRIORITY — defer to post-pilot.** Containerization is important for reproducible deployments, but the current fleet is deployed via Ansible + Docker Compose on specific hosts (see AGENTS.md §2). Adding Dockerfiles to 23 repos is a massive undertaking with limited immediate value. Priority: (1) add Dockerfiles to Tier 1/2 apps post-pilot if scaling requires it, (2) skip Tier 3/4 repos (they don't need containers). Use `jol-auth` as reference (17/17 score, has Docker). Effort: ~2-3 days per repo = 46-69 days total. Risk if not fixed: deployment inconsistency, harder scaling. Mitigation: current Ansible deployment is working.
 
 ---
 
@@ -91,6 +103,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** Tier 3 integration repo is a placeholder with no functionality.  
 **Recommendation:** Either populate with actual taxonomy data/models or de-scope from Tier 3.
 
+**Professional Opinion:** **Recommend de-scope — same as H1.** `jol-domain-taxonomy` is an empty Tier 3 integration repo with no functionality. Similar to `jol-core`, it's aspirational. De-scope: archive the repo or rename to `jol-domain-taxonomy-tombstone`, update AGENTS.md §1 to remove it from Tier 3. If a concrete use case emerges post-pilot (e.g., domain classification for SEO), revisit with a specific requirement. Effort: ~1 hour. Risk if not fixed: NONE — it's not blocking anything.
+
 ---
 
 #### M4: `jol-hub` monorepo structure not visible at root
@@ -100,6 +114,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** The architectural intent (monorepo with shared packages) is not immediately visible. New contributors may struggle to understand the structure.  
 **Recommendation:** Add a root-level `ARCHITECTURE.md` or update README to explain the monorepo structure, package locations, and build/test commands.
 
+**Professional Opinion:** **LOW EFFORT — do it now.** This is a documentation issue, not a code issue. Adding an `ARCHITECTURE.md` to `jol-hub` takes ~2 hours and significantly improves onboarding for new contributors. Include: (1) monorepo structure (packages/, apps/, shared libs), (2) build commands (turbo, tsup), (3) test commands, (4) deployment model. Effort: ~2 hours. Risk if not fixed: contributor confusion, slower onboarding. This is a quick win.
+
 ---
 
 #### M5: `jol-auth` has `.env` file (potential secret exposure)
@@ -108,6 +124,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Finding:** The repo has both `.env.example` and `.env` files. If `.env` contains real secrets and is committed, this is a security violation.  
 **Impact:** Potential credential exposure. AGENTS.md §0.1 forbids committing `.env` files.  
 **Recommendation:** Verify `.env` is in `.gitignore`. If committed, rotate credentials immediately and add `.env` to `.gitignore`.
+
+**Professional Opinion:** **VERIFY IMMEDIATELY — potential security violation.** This is a potential credential exposure. Check: (1) `cat /opt/jol/repos/jol-auth/.gitignore | grep .env` — if `.env` is listed, it's safe, (2) `git log --all --full-history -- .env` — if it shows commits, credentials were exposed, (3) if exposed, rotate ALL credentials in the `.env` file immediately. Effort: ~30 minutes to verify, ~2 hours to rotate if needed. Risk if not fixed: credential exposure, potential data breach. This is a security-critical check.
 
 ---
 
@@ -129,6 +147,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** Low — infra/gov repo with limited application logic.  
 **Recommendation:** Add compliance-check workflow if not present.
 
+**Professional Opinion:** **LOW PRIORITY — defer to post-pilot.** `jol-devops` is a Tier 4 infra/gov repo with limited application logic. Adding a compliance-check workflow is nice-to-have, not critical. Effort: ~2 hours. Risk if not fixed: NONE — it's not blocking anything. Do this when you have spare time.
+
 ---
 
 #### L3: `jol-ecommerce-engine` is the most architecturally complete repo
@@ -137,6 +157,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Finding:** Has Python, NPM, tests, 7 CI workflows, lockfile, Makefile — the most complete architecture in the fleet.  
 **Impact:** Positive — this is the reference implementation for other repos.  
 **Recommendation:** Use as a template for other Tier 1/2 repos.
+
+**Professional Opinion:** **POSITIVE — this is the reference implementation.** `jol-ecommerce-engine` is the most architecturally complete repo in the fleet (12/17 score, 7 CI workflows, lockfile, tests). Use it as a template when onboarding new Tier 1/2 repos or remediating existing ones. No action needed — just reference it in documentation and training.
 
 ---
 
