@@ -44,11 +44,11 @@ def classify_repo(r):
         rtype = "ORG-DEFAULTS"
     elif name == "jol-repo-template":
         rtype = "TEMPLATE"
-    elif r["isTemplate"] and name in ("jol-mcp-servers", "jol-ecommerce-engine", "jol-rag-server", "jol-security", "jol-core"):
+    elif r["isTemplate"] and name in ("jol-mcp-servers", "jol-ecommerce-engine", "jol-rag-server", "jol-security"):
         rtype = "TEMPLATE+ACTIVE"
     elif name.startswith("jol-site-"):
         rtype = "SITE-SPOKE"
-    elif name in ("jol-hub", "jol-core", "jol-auth"):
+    elif name in ("jol-hub", "jol-auth"):
         rtype = "TIER0-CONTRACT"
     elif name in ("jol-rag-server", "jol-ecommerce-engine", "jol-analytics-ai"):
         rtype = "TIER1-PRIMARY"
@@ -61,7 +61,7 @@ def classify_repo(r):
     else:
         rtype = "UNCATEGORIZED"
 
-    if name in ("jol-hub", "jol-rag-server", "jol-core", "jol-auth"):
+    if name in ("jol-hub", "jol-rag-server", "jol-auth"):
         crit = "CRITICAL"
     elif name in ("jol-llm", "jol-mcp-servers", "jol-ecommerce-engine", "jol-infrastructure"):
         crit = "HIGH"
@@ -72,7 +72,7 @@ def classify_repo(r):
     else:
         crit = "LOW"
 
-    if name in ("jol-rag-server", "jol-auth", "jol-core", "jol-hub"):
+    if name in ("jol-rag-server", "jol-auth", "jol-hub"):
         sensitivity = "HIGH-GDPR-Art9"
     elif name in ("jol-ecommerce-engine", "jol-analytics-ai"):
         sensitivity = "HIGH-PCI"

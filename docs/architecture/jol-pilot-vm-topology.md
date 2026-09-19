@@ -85,7 +85,7 @@ still meet a firewall-enforced boundary before reaching data. A VM (not an
 LXC) is chosen because Art. 9 special-category data demands the strongest
 available isolation for the guests adjacent to it, and KVM gives an
 auditable, snapshot/backup-able unit per SOC 2 CC8.1 change evidence.
-Cross-repo dependencies (AGENTS.md §1): upstream `jol-core` (domain models),
+Cross-repo dependencies (AGENTS.md §1): upstream
 `jol-auth` (identity / JWT contract), `jol-backend-platform` (application
 logic + health-endpoint port contract); downstream `jol-hub` + `jol-site-*`
 spokes (UI — formerly `jol-frontend-platform`, retired 2026-09-11) and
@@ -101,7 +101,7 @@ backup with its own RPO, and keeps PCI scoping — if invoked — contained to a
 single guest rather than the whole application stack. 16 GB RAM supports
 PostgreSQL shared_buffers sizing without contention.
 Cross-repo dependencies: schema and migrations are owned by
-`jol-backend-platform` / `jol-core` (this repo never contains application
+`jol-backend-platform` (this repo never contains application
 logic — AGENTS.md §1 rule 1); credentials flow exclusively via Ansible
 Vault at deploy time; no repo — including this one — stores DB values.
 Consumers reach the data tier only through VM 200; there is no direct
@@ -184,3 +184,4 @@ the systems it observes.
 | 2026-08-23 | Reconciliation pass: ingress row updated to proposed VLAN 45 (10.45.45.10) + backend 10.40.40.23 per Step 2 vmbr layout and ratified Step 1 task spec; ADR-004 gate unchanged | `docs/network/prox01-vmbr-layout.md` §2 |
 | 2026-08-23 | D5 completed per ratified task spec: cross-repo dependency dimension added to all five VM rationales (AGENTS.md §1 ecosystem map) | AGENTS.md §1 |
 | 2026-09-11 | VM 200 downstream UI dependency corrected to `jol-hub` + `jol-site-*` spokes following the `jol-frontend-platform` retirement | `docs/compliance/evidence/change-record-retire-jol-frontend-platform-20260911.md` |
+| 2026-09-19 | VM 200/201 cross-repo dependency references to `jol-core` removed per ADR-007 (de-scope from Tier 0) | `docs/adr/ADR-007-descope-jol-core.md` |
