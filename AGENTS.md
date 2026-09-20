@@ -5,7 +5,7 @@
 **Compliance**: GDPR Article 9 (special category: religious affiliation), PCI-DSS (donations), SOC 2 Type II, ISO 27001:2022
 **Role**: You are a Principal Platform Architect with 30 years of combined SEO, UI/UX, GitHub, and DevOps expertise. Every recommendation must include: (1) security impact, (2) compliance impact, (3) cross-repo dependency impact, (4) rollback strategy.
 
-> **Audit status**: 2026-08-17 — 26 findings (5 HIGH, 10 MEDIUM, 11 LOW) raised against the draft and applied in this file. P2 host-side gates executed 2026-08-17: llm 14/14 PASS, rag 13/13 PASS, mcp 13/14 → **M3 remediated 2026-08-18, mcp now 14/14 PASS**. §2.4 jol-hermes-agents audited 2026-08-18 (declarative-only; runtime C1 open). See §7 Audit Trail. Ground-truth sources: `docs/servers/{rag,llm,mcp}-prod-lt01.md`, `inventory/prod/host_vars/*.yml`, and the `jol-rag-server`, `jol-llm`, `jol-mcp-servers`, `jol-hermes-agents` repositories.
+> **Audit status**: 2026-08-17 — 26 findings (5 HIGH, 10 MEDIUM, 11 LOW) raised against the draft and applied in this file. P2 host-side gates executed 2026-08-17: llm 14/14 PASS, rag 13/13 PASS, mcp 13/14 → **M3 remediated 2026-08-18, mcp now 14/14 PASS**. §2.4 jol-hermes-agents audited 2026-08-18 (declarative-only; C1 resolved 2026-09-19). See §7 Audit Trail. Ground-truth sources: `docs/servers/{rag,llm,mcp}-prod-lt01.md`, `inventory/prod/host_vars/*.yml`, and the `jol-rag-server`, `jol-llm`, `jol-mcp-servers`, `jol-hermes-agents` repositories.
 
 ---
 
@@ -346,7 +346,7 @@ systemctl restart jol-git-server && systemctl is-active jol-git-server
 ### 2.4 jol-hermes-agents (AGENT CONTRACTS — DECLARATIVE ONLY)
 
 **Purpose**: The declarative home of the Hermes operations agent — configuration, skill contracts, memory schema + GDPR retention policy, prompts, and guardrail policies, plus the tests that enforce them.
-**Nature (verified 2026-08-18)**: **NO RUNTIME exists in this repository.** `main.py` is a bootstrap/validator only ("Runtime orchestration lives elsewhere"); `docs/audit/AUDIT_REPORT.md` (2026-08-13) finding **C1 CRITICAL** blocks deployment until the runtime component is identified and audited. Every runtime claim below is therefore a *contract for the future runtime*, not a verified behavior.
+**Nature (verified 2026-08-18, C1 resolved 2026-09-19)**: **Definition-only repository — NO RUNTIME exists or is planned in this repo.** `main.py` is a bootstrap/validator only ("Runtime orchestration lives elsewhere"). Finding **C1 CRITICAL** (2026-08-13 audit) is **RESOLVED**: `jol-hermes-agents` is formally declared a declarative definition repo; the readiness gate for runtime deployment moves to whichever future repo implements the runtime orchestration layer. No runtime repo exists in the fleet today. Every runtime claim below is a *contract for a future runtime*, not a verified behaviour.
 **LLM path (verified)**: EU-only EXTERNAL provider chain — `config/model-routing.yaml` pins Mistral `mistral-large-2411` (primary) → OVH-AI `llama-3.1-70b-instruct` (fallback), failover on timeout/rate-limit/server-error. NEVER `*-latest` aliases (audit finding H2). `blocked_data_classes`: credentials, payment_data. **Hermes does NOT currently use the on-prem Ollama stack** — any such integration requires a data-residency ADR.
 
 > 🛑 **DRIFT ALERT**: the original §2.4 draft claimed "MCP client: official Python SDK, stdio transport" and "Ollama REST API" transport. **Zero MCP references exist in this repo** (verified grep across config/, skills/, main.py, pyproject.toml), and dependencies are pyyaml + python-dotenv only. The ecosystem-map line "jol-hermes-agents depends on jol-mcp-servers" is aspirational, not actual.
@@ -360,7 +360,7 @@ systemctl restart jol-git-server && systemctl is-active jol-git-server
 - ⚠ COMPLIANCE: CoT / decision-chain persistence requires retention-policy entry + DPIA review BEFORE the runtime enables it (storage limitation, Art. 5(1)(e))
 
 #### Audit Checklist — Verify Before Declaring Operational
-> Repo-level gates (executable from any checkout); runtime gates activate only once C1 is resolved and a host is designated.
+> Repo-level gates (executable from any checkout); runtime gates activate only once a runtime repo is created and audited.
 ```text
 □ Config validation:     cd jol-hermes-agents && python main.py validate    # VERIFIED 2026-08-18: OK
 □ Test suite:            pytest tests/ -q                                   # VERIFIED 2026-08-18: all pass
@@ -369,15 +369,15 @@ systemctl restart jol-git-server && systemctl is-active jol-git-server
 □ Blocked data classes:  grep -A3 blocked_data_classes config/model-routing.yaml   # credentials + payment_data present
 □ Retention coverage:    python main.py validate   # every memory/schema.yaml namespace has a retention rule
 □ Secret hygiene:        git ls-files | grep -v example.env | xargs grep -lE "HERMES_.*_API_KEY=." | wc -l   # 0 real values committed
-□ Runtime identified:    docs/audit/AUDIT_REPORT.md C1 status               # ⚠ OPEN — runtime repo must be identified + audited before go-live
+□ Runtime repo:        docs/audit/AUDIT_REPORT.md C1 status               # ✅ RESOLVED 2026-09-19 — jol-hermes-agents is definition-only; readiness gate moves to future runtime repo
 □ (runtime) Rate limit:  burst test against the deployed runtime — N+1 requests in window → rejected. connected_clients-style proxies do NOT test rate limiting
 □ (runtime) Session isolation: cross-session leakage test → MUST fail (no leakage)
 □ (runtime) Purge job:   retention-policy purge executes mechanically for every namespace (daily schedule)
 ```
 
 #### Cross-Repo Dependencies (actual)
-- **Upstream**: none enforced today — provider keys via env; contracts self-contained
-- **Downstream**: the (not-yet-identified) runtime consumes this repo's config/skills/memory contracts; readiness gate moves to the runtime repo per C1
+- **Upstream**: none enforced today — provider keys via env; contracts self-contained. Future: `jol-core` domain models when the runtime lands
+- **Downstream**: a future runtime repo (not yet created) will consume this repo's config/skills/memory contracts; C1 resolved 2026-09-19 — readiness gate moves to that repo
 - **Aspirational (not wired)**: `jol-mcp-servers` tool registry, `jol-llm`/Ollama inference — both require explicit ADRs (MCP stdio contract; on-prem vs EU-provider data residency)
 - **Audit trail**: `docs/audit/AUDIT_REPORT.md` 2026-08-13 (C1 critical, H2/H3 findings), DPIA at `docs/dpia-ai-processing.md`
 
@@ -586,4 +586,4 @@ Execution path note: admin01 (10.10.10.0/24) is blocked from VLAN 40 SSH/service
 2. **Model inventory drift**: Ollama on llm-prod-lt01 also hosts `qwen3-coder:30b`, `deepseek-r1:14b`, `qwen3:8b`, `qwen3:14b`, `nomic-embed-text` (pulled 2026-08-14) — not yet recorded in `docs/servers/llm-prod-lt01.md`
 3. **Router decision** (Tier-1, MikroTik): align the inter-VLAN filter with the documented "direct from admin01" intent, or revert the UFW rule and keep guest-agent as the sanctioned gate path
 4. **L15/L16**: deliver jol-llm test assets to llm-prod-lt01, then certify 0-day retention + egress blocking on-host
-5. **Hermes runtime (C1 CRITICAL, audit 2026-08-13)**: identify + audit the runtime component that consumes jol-hermes-agents contracts; §2.4 runtime gates activate only afterwards. MCP/Ollama integrations remain aspirational pending ADRs
+5. **Hermes runtime (C1 CRITICAL, audit 2026-08-13)**: ✅ RESOLVED 2026-09-19 — `jol-hermes-agents` formally declared definition-only; readiness gate moves to future runtime repo. No runtime repo exists in the fleet today. MCP/Ollama integrations remain aspirational pending ADRs

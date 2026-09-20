@@ -9,12 +9,13 @@
 
 ## Executive Summary
 
-The JOL fleet exhibits **significant architectural maturity gaps** across all tiers. CRITICAL tier repos (the foundation layer) show the most concerning patterns: `jol-core` is an empty shell with no code, `jol-rag-server` (PRIMARY application) has only 1 CI workflow, and `jol-hub` (monorepo) lacks visible structure at root level. The 10 site spokes have **zero test coverage** and no containerization. Most Python repos lack lockfiles, indicating weak dependency pinning.
+The JOL fleet exhibits **significant architectural maturity gaps** across all tiers. CRITICAL tier repos (the foundation layer) show the most concerning patterns: `jol-core` is an empty shell with no code, `jol-rag-server` (PRIMARY application) has 4/6 target CI workflows (partially remediated), and `jol-hub` (monorepo) lacks visible structure at root level. The 10 site spokes have **zero test coverage** and no containerization. Most Python repos lack lockfiles, indicating weak dependency pinning.
 
 **Headline findings:**
-- **4 HIGH-severity findings** requiring immediate remediation (H1–H4)
-- **5 MEDIUM-severity findings** entering the backlog (M1–M5)
+- **3 HIGH-severity findings** requiring remediation (H1, H2 partially remediated, H4)
+- **4 MEDIUM-severity findings** in backlog (M1–M4; M5 CLOSED as false positive)
 - **2 LOW-severity findings** for future improvement (L2–L3; L1 and L4 upgraded to H3)
+- **H3 FIXED** (2026-09-19): reusable workflows moved to `.github`, spoke CI restored
 
 **CRITICAL CORRECTION (2026-09-19):** The initial assessment understated the spoke CI issue. Manual verification revealed that all 10 spokes reference reusable workflows in `.github/.github/workflows/`, but that directory doesn't exist. The workflows actually exist in `jol-hub/.github/workflows/`. This means **all spoke CI is broken** — upgraded from "zero test coverage" to "CI doesn't work at all" (H3). Zero in-repo test coverage is now H4 (separate issue).
 
@@ -36,15 +37,15 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 
 ---
 
-#### H2: ~~`jol-rag-server` (PRIMARY app) has minimal CI — only 1 workflow~~ — ✅ FIXED
+#### H2: `jol-rag-server` (PRIMARY app) CI still missing dependency-review and lockfile-validation
 
 **Repo:** `jol-rag-server` (Tier 1 — PRIMARY APPLICATION)  
-**Finding:** ~~The PRIMARY application repository has only **1 CI workflow** (`ci.yaml`).~~ **REMEDIATED 2026-09-19:** `jol-rag-server` now has **4 CI workflows** (10 jobs total): `ci.yaml` (7 jobs), `codeql.yml`, `compliance-check.yml`, `secrets-scan.yml`. All required gates are now present: CodeQL SAST, secrets detection (TruffleHog), GDPR Art.9 compliance check, lockfile validation, and blocking dependency audit.  
-**Impact:** ~~Weak CI gates increase the risk of security vulnerabilities, dependency drift, and compliance violations reaching production.~~ **RESOLVED** — CI now enforces SOC 2 CC7.2, ISO 27001 A.12.4, and GDPR Art.9 controls.  
-**Evidence:** ~~Phase 5 scan: `workflow_count: 1`.~~ Commit `0b10d86` in `jol-rag-server` (branch `remediation/h2-ci-gates`): 4 workflows, 10 jobs, all validated.  
-**Recommendation:** ~~Add security-scan, compliance-check, codeql, lockfile-validation, and dependency-review workflows.~~ **COMPLETE** — all gates implemented and verified.
+**Finding:** The PRIMARY application repository has **4 CI workflows** (`ci.yaml`, `codeql.yml`, `compliance-check.yml`, `secrets-scan.yml`). This is an improvement from the initial assessment (1 workflow), but still below the target of 5-6 for a PRIMARY app handling GDPR Art.9 religious data. Missing: **dependency-review** and **lockfile-validation**.  
+**Impact:** Without dependency-review, transitive vulnerabilities may reach production. Without lockfile-validation, non-reproducible builds are possible.  
+**Evidence:** Verified 2026-09-19: `ls .github/workflows/` → ci.yaml, codeql.yml, compliance-check.yml, secrets-scan.yml.  
+**Recommendation:** Add dependency-review and lockfile-validation workflows. Use `jol-ecommerce-engine` as reference.
 
-**Professional Opinion:** ✅ **FIXED — production-ready.** H2 remediation executed 2026-09-19: CodeQL (security-extended queries), TruffleHog secrets detection, GDPR Art.9 compliance check, and lockfile validation added to `jol-rag-server`. pip-audit now blocks on vulnerabilities (removed `|| true`). All 4 workflows validated: correct YAML syntax, appropriate permissions, proper triggers. Compliance grep patterns verified against actual code (audit logging, GDPR deletion, authentication all present). Risk: NONE — fix is complete and validated. SOC 2 CC7.2 and ISO 27001 A.12.4 requirements now met for GDPR Art.9 PRIMARY app.
+**Professional Opinion:** **PARTIALLY REMEDIATED — severity reduced from CRITICAL to MEDIUM.** The repo now has codeql (static analysis), compliance-check (Art.9 handling), and secrets-scan (credential detection). The remaining gap (dependency-review + lockfile-validation) is lower risk than the original finding. Effort: ~4 hours. Risk if not fixed: transitive dependency vulns, non-reproducible builds.
 
 ---
 
@@ -118,12 +119,12 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 
 ---
 
-#### M5: `jol-auth` has `.env` file (potential secret exposure)
+#### M5: ~~`jol-auth` has `.env` file (potential secret exposure)~~ — CLOSED (false positive)
 
 **Repo:** `jol-auth` (Tier 0 — Contracts)  
-**Finding:** The repo has both `.env.example` and `.env` files. If `.env` contains real secrets and is committed, this is a security violation.  
-**Impact:** Potential credential exposure. AGENTS.md §0.1 forbids committing `.env` files.  
-**Recommendation:** Verify `.env` is in `.gitignore`. If committed, rotate credentials immediately and add `.env` to `.gitignore`.
+**Finding:** ~~The repo has both `.env.example` and `.env` files. If `.env` contains real secrets and is committed, this is a security violation.~~ **VERIFIED 2026-09-19: FALSE POSITIVE.** `.env` is in `.gitignore` (line 36), is NOT tracked by git (`git ls-files .env` returns empty), and has NEVER been in git history (`git log --all --full-history -- .env` returns empty). No credential exposure occurred.  
+**Impact:** ~~Potential credential exposure.~~ **NONE** — properly gitignored.  
+**Recommendation:** ~~Verify `.env` is in `.gitignore`.~~ **CLOSED — no action required.**
 
 **Professional Opinion:** **VERIFY IMMEDIATELY — potential security violation.** This is a potential credential exposure. Check: (1) `cat /opt/jol/repos/jol-auth/.gitignore | grep .env` — if `.env` is listed, it's safe, (2) `git log --all --full-history -- .env` — if it shows commits, credentials were exposed, (3) if exposed, rotate ALL credentials in the `.env` file immediately. Effort: ~30 minutes to verify, ~2 hours to rotate if needed. Risk if not fixed: credential exposure, potential data breach. This is a security-critical check.
 
@@ -184,7 +185,7 @@ Scoring: 1 point per architectural marker present (src, packages, app, pyproject
 | `jol-link-registry` | 11/17 | A | Docker, tests, CI, Makefile |
 | `jol-analytics-ai` | 10/17 | A- | Docker, tests, CI, Makefile |
 | `jol-mcp-servers` | 9/17 | B+ | Tests, CI, Makefile |
-| `jol-rag-server` | 12/17 | A | Tests, CI (4 workflows, 10 jobs), Makefile |
+| `jol-rag-server` | 10/17 | A- | Tests, CI (4 workflows: ci, codeql, compliance, secrets-scan), Makefile |
 | `jol-bitrix24-integration` | 7/17 | B- | Tests, CI |
 | `jol-compliance` | 6/17 | C+ | Tests, CI |
 | `jol-infrastructure` | 6/17 | C+ | Tests, CI, Makefile |
@@ -196,7 +197,7 @@ Scoring: 1 point per architectural marker present (src, packages, app, pyproject
 | 10× `jol-site-*` | 3/17 | D | src, NPM, 1 CI each |
 | `jol-core` | 4/17 | C | Governance docs only |
 | `jol-domain-taxonomy` | 4/17 | C | Governance docs only |
-| `.github` | 0/17 | F | Expected — org defaults only |
+| `.github` | 6/17 | C+ | 6 workflows (5 reusable + validator); H3 fix applied 2026-09-19 |
 
 ---
 
@@ -204,18 +205,18 @@ Scoring: 1 point per architectural marker present (src, packages, app, pyproject
 
 ### Immediate (HIGH severity)
 
-1. **H1:** Populate `jol-core` with domain models or de-scope from Tier 0 — ✅ **DONE** (ADR-007)
-2. **H2:** Add security-scan, compliance-check, codeql, lockfile-validation, dependency-review workflows to `jol-rag-server` — ✅ **DONE** (commit `0b10d86`)
-3. **H3:** Move 5 reusable workflows from `jol-hub/.github/workflows/` to `.github/.github/workflows/` (fix broken spoke CI references) — ✅ **DONE**
+1. **H1:** Populate `jol-core` with domain models or de-scope from Tier 0
+2. **H2:** Add dependency-review and lockfile-validation to `jol-rag-server` (4/6 workflows present — partially remediated)
+3. ~~**H3:**~~ **FIXED** — 5 reusable workflows moved to `.github`, validator added (2026-09-19)
 4. **H4:** Add test infrastructure to 10 site spokes (unit, integration, e2e)
 
 ### Short-term (MEDIUM severity)
 
-4. **M1:** Generate lockfiles for 9 Python repos
-5. **M2:** Add Dockerfiles to remaining 23 repos
-6. **M3:** Populate `jol-domain-taxonomy` or de-scope from Tier 3
-7. **M4:** Add ARCHITECTURE.md to `jol-hub` explaining monorepo structure
-8. **M5:** Verify `.env` is in `.gitignore` for `jol-auth`; rotate if committed
+5. **M1:** Generate lockfiles for 9 Python repos
+6. **M2:** Add Dockerfiles to remaining 23 repos
+7. **M3:** Populate `jol-domain-taxonomy` or de-scope from Tier 3
+8. **M4:** Add ARCHITECTURE.md to `jol-hub` explaining monorepo structure
+9. ~~**M5:**~~ **CLOSED** — false positive (`.env` properly gitignored, never committed)
 
 ### Long-term (LOW severity)
 
@@ -258,30 +259,26 @@ metadata assessment.
 
 **Opinion: ACCEPT the severity ranking as correct and defensible — CORRECTED 2026-09-19.**
 
-The 4 HIGH / 5 MEDIUM / 2 LOW ranking is grounded in compliance risk and blast radius:
+The corrected ranking is **3 HIGH / 4 MEDIUM / 2 LOW** (H3 FIXED, M5 CLOSED):
 
 **HIGH severity (immediate remediation):**
 - **H1 (jol-core empty):** Tier 0 contract repo with no code — the foundation layer is a facade.
   This violates AGENTS.md §1 Tier 0 role ("domain models, shared contracts") and undermines the
   entire dependency model. If Tier 0 is aspirational, AGENTS.md must be corrected to prevent
   audit findings.
-- **H2 (jol-rag-server minimal CI):** PRIMARY application handling GDPR Art.9 religious data with
-  only 1 CI workflow. This violates SOC 2 CC7.2 (monitoring) and ISO 27001 A.12.4 (logging/monitoring).
-  A PRIMARY app should have security-scan, compliance-check, codeql, lockfile-validation, and
-  dependency-review gates at minimum.
-- **H3 (10 spokes broken CI references):** All 10 spokes reference reusable workflows in `.github/.github/workflows/`,
-  but that directory doesn't exist. The workflows exist in `jol-hub/.github/workflows/`. This means
-  **all spoke CI is broken** — worse than "zero test coverage." This violates ISO 27001 A.12.1.2
-  (controls to ensure integrity of operating systems) and creates unacceptable risk of untested
-  code reaching production.
+- **H2 (jol-rag-server CI gaps):** PRIMARY application handling GDPR Art.9 religious data.
+  Now has 4/6 target workflows (partially remediated). Remaining gap: dependency-review and
+  lockfile-validation. Severity reduced from CRITICAL to MEDIUM.
+- ~~**H3 (10 spokes broken CI references):**~~ **FIXED** (2026-09-19) — 5 reusable workflows
+  moved to `.github`, validator added. All spoke CI references now resolve.
 - **H4 (10 spokes zero in-repo test coverage):** Even if H3 is fixed, the spokes have zero test
   files in-repo. This violates ISO 27001 A.14.2.2 (secure development) and creates unacceptable
   risk of accessibility violations (WCAG), security vulnerabilities, and business logic errors.
 
 **MEDIUM severity (backlog):**
-- **M1–M5** are correct — lockfile gaps, containerization gaps, empty Tier 3 repo, monorepo
-  documentation gap, and potential secret exposure. These are compliance risks but not immediate
-  blockers.
+- **M1–M4** are correct — lockfile gaps, containerization gaps, empty Tier 3 repo, monorepo
+  documentation gap. These are compliance risks but not immediate blockers.
+- **M5** is CLOSED (false positive) — `.env` properly gitignored, never committed.
 
 **LOW severity (future improvement):**
 - **L2–L3** are correct — minimal CI for infra repos, reference implementations.
@@ -298,7 +295,7 @@ The 17-point scoring system is a useful heuristic for architectural maturity, bu
 be treated as a compliance metric because:
 1. **Not all markers are equal** — having a Dockerfile is less critical than having tests for a
    GDPR Art.9 repo.
-2. **Context matters** — `.github` scoring 0/17 is expected (org defaults only), not a failure.
+2. **Context matters** — `.github` now scores 6/17 (after H3 fix added 6 workflows). Before the fix, 0/17 was expected (org defaults only).
 3. **Monorepo complexity** — `jol-hub` scores 8/17 but has 2375 test files and 9 CI workflows;
    the score under-represents its maturity because the monorepo structure is in subdirectories.
 
@@ -321,9 +318,7 @@ remediation effort:
 **Immediate (HIGH severity):**
 1. **H1:** Populate `jol-core` or de-scope — low effort, high impact (clarifies Tier 0 role).
 2. **H2:** Add CI workflows to `jol-rag-server` — medium effort, high impact (compliance gates).
-3. **H3:** Move 5 reusable workflows from `jol-hub` to `.github` — low effort, CRITICAL impact
-   (fixes broken spoke CI). This is the highest-priority item because it's a simple file move
-   that unblocks all 10 spokes.
+3. ~~**H3:**~~ **FIXED** (2026-09-19) — 5 reusable workflows moved to `.github`, validator added.
 4. **H4:** Add tests to 10 spokes — high effort, high impact (test coverage for 400k websites).
 
 **Short-term (MEDIUM severity):**
@@ -331,27 +326,27 @@ remediation effort:
 6. **M2:** Add Dockerfiles — medium effort, medium impact (containerization).
 7. **M3:** Populate `jol-domain-taxonomy` or de-scope — low effort, low impact.
 8. **M4:** Add ARCHITECTURE.md to `jol-hub` — low effort, medium impact (documentation).
-9. **M5:** Verify `.env` in `.gitignore` — low effort, high impact (security).
+9. ~~**M5:**~~ **CLOSED** — false positive (`.env` properly gitignored, never committed).
 
 **Long-term (LOW severity):**
 10. **L2:** Add compliance-check to `jol-devops` — low effort, low impact.
 11. **L3:** Use `jol-ecommerce-engine` as template — no effort, positive impact.
 
 The prioritization is actionable because each item has a clear owner (repo), effort estimate
-(low/medium/high), and impact assessment (low/medium/high). **H3 is the highest-priority item**
-because it's a simple file move that unblocks all 10 spokes' CI pipelines.
+(low/medium/high), and impact assessment (low/medium/high). **H3 is FIXED** (2026-09-19) — the
+simplest file move that unblocked all 10 spokes' CI pipelines. **M5 is CLOSED** (false positive).
 
 ### Opinion 5: Artifact created
 
 **Opinion: ACCEPT the `architecture-assessment.md` artifact as complete and audit-ready — CORRECTED 2026-09-19.**
 
 The artifact is:
-1. **Comprehensive** — covers all 29 repos, 17 architectural markers, 11 findings (4 HIGH, 5 MEDIUM, 2 LOW).
+1. **Comprehensive** — covers all 29 repos, 17 architectural markers, 9 active findings (3 HIGH, 4 MEDIUM, 2 LOW; H3 FIXED, M5 CLOSED).
 2. **Evidence-based** — references automated scan output (JSON, summary) and manual review.
 3. **Actionable** — provides per-finding recommendations and a prioritized remediation backlog.
 4. **Audit-ready** — structured for SOC 2 / ISO 27001 evidence submission.
-5. **Self-correcting** — the 2026-09-19 correction (broken CI references) demonstrates that the
-   assessment methodology can identify and correct understated findings when deeper manual review
+5. **Self-correcting** — the 2026-09-19 corrections (H3 FIXED, M5 CLOSED, H2 partially remediated) demonstrate that the
+   assessment methodology can identify and correct findings when deeper manual review
    is applied.
 
 The artifact should be committed to `docs/audit/` and referenced in the CHANGELOG.md as part of
@@ -366,12 +361,12 @@ the Phase 5 architecture assessment.
 Based on the professional opinions above, the following approvals are requested:
 
 - [ ] **Architecture assessment methodology** accepted as comprehensive and evidence-based.
-- [ ] **Findings severity ranking** (4 HIGH, 5 MEDIUM, 2 LOW) accepted as correct and defensible.
+- [ ] **Findings severity ranking** (3 HIGH, 4 MEDIUM, 2 LOW; H3 FIXED, M5 CLOSED) accepted as correct and defensible.
 - [ ] **Per-repo scores** accepted as useful heuristic (not compliance metric).
 - [ ] **Remediation backlog prioritization** accepted as actionable.
 - [ ] **`architecture-assessment.md` artifact** accepted as complete and audit-ready.
-- [ ] **H1, H2, H3, H4** accepted for immediate remediation.
-- [ ] **M1–M5** accepted into short-term backlog.
-- [ ] **L2–L3** acknowledged for future improvement (L1 and L4 upgraded to H3).
+- [ ] **H1, H2, H4** accepted for immediate remediation (H3 already FIXED).
+- [ ] **M1–M4** accepted into short-term backlog (M5 CLOSED as false positive).
+- [ ] **L2–L3** acknowledged for future improvement (L1 and L4 upgraded to H3, now FIXED).
 
 > Gate 5 does not authorize any change. On approval, proceed to remediation planning.

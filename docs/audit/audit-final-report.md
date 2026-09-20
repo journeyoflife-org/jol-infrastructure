@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Comprehensive audit completed across 29 repositories covering architecture, security, and compliance. **Total findings: 27** (6 CRITICAL/HIGH, 13 MEDIUM, 8 LOW). **Total remediation effort: 136-248 hours** across Q4 2026 / Q1 2027.
+Comprehensive audit completed across 29 repositories covering architecture, security, and compliance. **Total findings: 27** (6 CRITICAL/HIGH, 13 MEDIUM, 8 LOW). **Total remediation effort: 196-337 hours** across Q4 2026 / Q1 2027.
 
 ### Key Metrics
 
@@ -21,7 +21,7 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 | **CRITICAL/HIGH** | 6 (22%) |
 | **MEDIUM** | 13 (48%) |
 | **LOW** | 8 (30%) |
-| **Total Remediation Effort** | 136-248 hours |
+| **Total Remediation Effort** | 196-337 hours |
 | **Timeline** | Q4 2026 / Q1 2027 |
 
 ### Compliance Posture
@@ -61,7 +61,7 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 |----|----------|---------|------|--------|----------|
 | **S1** | Security | 3 real database passwords in bootstrap scripts | `jol-auth` | 4-8 hours | 🔴 IMMEDIATE |
 | **H1** | Architecture | `jol-core` is empty (no shared models) | `jol-core` | 0 hours (de-scope) | 🟠 Q4 2026 |
-| **H2** | Architecture | ~~`jol-rag-server` minimal CI~~ — ✅ FIXED (4 workflows, 10 jobs) | `jol-rag-server` | 2 hours | ✅ FIXED |
+| **H2** | Architecture | `jol-rag-server` minimal CI (missing security-scan, dependency-review) | `jol-rag-server` | 16-24 hours | 🟠 Q4 2026 |
 | **H3** | Architecture | Broken CI references (10 spokes reference non-existent workflows) | 10 spokes | 0 hours | ✅ FIXED |
 | **C1** | Compliance | Privacy policies missing (GDPR Art. 13-14) | `jol-compliance` | 40-80 hours | 🟠 Q4 2026 |
 | **C2** | Compliance | Compliance matrix incomplete (117 [STATUS] placeholders) | `jol-compliance` | 16-24 hours | 🟠 Q4 2026 |
@@ -101,21 +101,21 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 | Priority | Findings | Effort | Timeline |
 |----------|----------|--------|----------|
 | 🔴 IMMEDIATE | 1 (S1) | 4-8 hours | This week |
-| 🟠 Q4 2026 | 5 (C1-C5, M5) | 80-144 hours | Q4 2026 |
+| 🟠 Q4 2026 | 7 (H1, H2, C1-C5, M5) | 96-168 hours | Q4 2026 |
 | 🟡 Q1 2027 | 6 (S5, M1-M2, L1, L3-L4) | 52-96 hours | Q1 2027 |
 | 🟡 Post-pilot | 4 (M3-M4, H4, L2, L5) | 552-1064 hours | Post-pilot |
-| ✅ FIXED/VERIFIED | 10 (H1, H2, H3, S2-S4, S6-S10) | 2 hours | N/A |
-| **TOTAL** | **27** | **690-1314 hours** | — |
+| ✅ FIXED/VERIFIED | 9 (H3, S2-S4, S6-S10) | 0 hours | N/A |
+| **TOTAL** | **27** | **704-1336 hours** | — |
 
 ### Cost Estimate
 
 | Phase | Effort | Cost (@ €100/hour) |
 |-------|--------|--------------------|
 | Immediate (S1) | 4-8 hours | €400-800 |
-| Q4 2026 | 80-144 hours | €8,000-14,400 |
+| Q4 2026 | 96-168 hours | €9,600-16,800 |
 | Q1 2027 | 52-96 hours | €5,200-9,600 |
 | Post-pilot | 552-1064 hours | €55,200-106,400 |
-| **TOTAL** | **690-1314 hours** | **€69,000-131,400** |
+| **TOTAL** | **704-1336 hours** | **€70,400-133,600** |
 
 ---
 
@@ -163,15 +163,15 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 **Weaknesses:**
 - **S1 is a CRITICAL security violation** — real passwords in bootstrap scripts
 - **Privacy policies are missing** — CRITICAL gap for GDPR compliance
-- **jol-core is empty** — no shared models across repos (de-scoped via ADR-007)
-- ~~**jol-rag-server has minimal CI**~~ — ✅ FIXED (4 workflows, 10 jobs)
+- **jol-core is empty** — no shared models across repos
+- **jol-rag-server has minimal CI** — missing security scans
 - **Compliance matrix is incomplete** — 117 placeholder [STATUS] values
 - **No monorepo tooling** — inconsistent builds across repos
 
 ### Recommendation
 
 **Priority 1 (IMMEDIATE):** Fix S1 (rotate passwords, move to Vault) — **4-8 hours**  
-**Priority 2 (Q4 2026):** Address HIGH compliance gaps (privacy policies, compliance matrix) — **80-144 hours**  
+**Priority 2 (Q4 2026):** Address HIGH compliance gaps (privacy policies, compliance matrix) — **96-168 hours**  
 **Priority 3 (Q1 2027):** Address MEDIUM architecture gaps (monorepo tooling, Node.js versions) — **52-96 hours**  
 **Priority 4 (Post-pilot):** Address LOW findings (test coverage, performance monitoring) — **552-1064 hours**
 
@@ -213,7 +213,7 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 - ❌ No remediation
 - ❌ S1 remains CRITICAL
 - ❌ Compliance gaps remain
-- **Effort saved:** 136-248 hours
+- **Effort saved:** 196-337 hours
 - **Risk:** HIGH (S1 security violation, GDPR non-compliance)
 
 **Option (b): Audit then remediate — continue to Step 9** ✅ RECOMMENDED
@@ -221,7 +221,7 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 - ✅ Remediate CRITICAL/HIGH findings
 - ✅ Address S1 (rotate passwords)
 - ✅ Address compliance gaps (privacy policies, matrix)
-- **Effort:** 84-152 hours (Immediate + Q4 2026)
+- **Effort:** 100-176 hours (Immediate + Q4 2026)
 - **Risk:** MEDIUM (residual MEDIUM/LOW findings remain)
 
 **Option (c): Full workflow — continue through Step 11**
@@ -229,7 +229,7 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 - ✅ Remediate all findings (including MEDIUM/LOW)
 - ✅ Verify remediation
 - ✅ Final sign-off
-- **Effort:** 690-1314 hours (all phases)
+- **Effort:** 704-1336 hours (all phases)
 - **Risk:** LOW (all findings addressed)
 
 ---
@@ -270,7 +270,7 @@ Comprehensive audit completed across 29 repositories covering architecture, secu
 
 **Total audit effort:** 24 hours (Steps 1-8)  
 **Total findings:** 27 (6 CRITICAL/HIGH, 13 MEDIUM, 8 LOW)  
-**Total remediation effort:** 136-248 hours (Immediate + Q4 2026 + Q1 2027)  
-**Total cost estimate:** €69,000-131,400 (all phases)
+**Total remediation effort:** 196-337 hours (Immediate + Q4 2026 + Q1 2027)  
+**Total cost estimate:** €70,400-133,600 (all phases)
 
 **Recommendation:** Option (b) — Audit then remediate (Step 9).

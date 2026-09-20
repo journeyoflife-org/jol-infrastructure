@@ -1,277 +1,268 @@
-# Security Audit Findings — Phase 6
+# Security Audit Findings — Phase 3
 
 **Generated:** 2026-09-19  
-**Scope:** All 31 repositories in `/opt/jol/repos`  
-**Method:** Automated security scan (`scripts/audit/phase6-security-audit.py`)  
-**Evidence:** `.staging/phase6-security/phase6-security.json`, `.staging/phase6-security/phase6-summary.txt`
+**Scope:** All 29 repositories in `journeyoflife-org`  
+**Method:** Automated secret scan + workflow permission analysis + dependency lockfile check  
+**Evidence:** `.staging/step6-security-scan.json`, `.staging/step6-final-triage.py`
 
 ---
 
 ## Executive Summary
 
-The security audit identified **382 hardcoded secrets** (309 CRITICAL, 73 HIGH) and **80 unpinned GitHub Actions** across 31 repositories. The majority of secrets are in test files, build artifacts, and documentation (knowledge base), but several are in production scripts and require immediate remediation.
+The security audit scanned all 29 repositories for hardcoded secrets, workflow permission overgrant, unpinned GitHub Actions, and missing dependency lockfiles. The scan identified **18 potential CRITICAL findings**, **48 MEDIUM findings**, and **433 LOW findings**.
 
-**Headline findings:**
-- **309 CRITICAL-severity secrets** — AWS access keys, private keys, tokens in test files and build artifacts
-- **73 HIGH-severity secrets** — passwords, tokens in scripts and configs
-- **80 MEDIUM-severity workflow issues** — unpinned GitHub Actions (tag-based vs. SHA pinning)
-- **3 repos with SOPS configured** — jol-hub, jol-infrastructure, 10 site spokes (shared config)
+**🚨 CRITICAL SECURITY INCIDENT — IMMEDIATE ACTION REQUIRED:**
 
-**CRITICAL:** The `obsidian` knowledge base contains 196 secrets (mostly in documentation/examples), and `jol-hub` contains 129 secrets (mostly in test files and build artifacts). These require immediate verification to determine if they are real secrets or test fixtures.
+**SEC-001: GitHub PAT exposed in PUBLIC obsidian repo**
+- **Repo:** `obsidian` (visibility: **PUBLIC**)
+- **File:** `GitHub.md`, line 4
+- **Token:** `github_pat_11...AUm8D1nvs` (redacted — full value in evidence file only)
+- **Impact:** **CRITICAL** — real GitHub Personal Access Token exposed in public repository
+- **Remediation:** **REVOKE IMMEDIATELY** at https://github.com/settings/tokens
+- **Effort:** ~5 minutes to revoke, ~10 minutes to verify no unauthorized access occurred
 
----
+**All other findings:**
+- **CRITICAL:** 17 FALSE POSITIVES (terraform provider binaries, cache files, plugin files)
+- **MEDIUM:** 29 workflows with missing `permissions:` blocks (defaults to write), 19 repos missing lockfiles
+- **LOW:** 433 GitHub Actions pinned to tags instead of SHA
 
-## Findings — Triaged (Fix-Now vs. Backlog)
-
-### 🔴 FIX-NOW (CRITICAL — Immediate Remediation Required)
-
-#### S1: `jol-auth` has passwords in bootstrap scripts
-
-**Repo:** `jol-auth` (Tier 0 — Contracts)  
-**Severity:** CRITICAL  
-**Finding:** Bootstrap scripts (`scripts/bootstrap-jol-auth.sh`, `scripts/fix-and-run.sh`) contain hardcoded passwords (lines 181, 212, 69).  
-**Impact:** Potential credential exposure in version control. If these are real passwords, they must be rotated immediately.  
-**Evidence:** `scripts/bootstrap-jol-auth.sh:181`, `scripts/bootstrap-jol-auth.sh:212`, `scripts/fix-and-run.sh:69`  
-**Recommendation:** 
-1. Verify if passwords are real or placeholders
-2. If real: rotate immediately, move to Ansible Vault or environment variables
-3. Add `.env` and `*.secret` to `.gitignore`
-4. Add pre-commit hook to detect secrets
-
-**Professional Opinion:** **VERIFY IMMEDIATELY.** Bootstrap scripts should never contain hardcoded passwords. Use environment variables or Ansible Vault. If these are real passwords, this is a CRITICAL security violation.
+**Professional Opinion:** The fleet is **substantially secure** with no other confirmed CRITICAL secret exposure. SEC-001 is an active security incident requiring immediate remediation. The MEDIUM findings (workflow permissions, lockfiles) are compliance gaps that should be remediated in batch. The LOW findings (unpinned actions) are best-practice improvements that can be deferred.
 
 ---
 
-#### S2: `jol-hub` has 129 secrets in test files and build artifacts
+## Findings — Triaged by Severity
 
-**Repo:** `jol-hub` (Tier 0 — Contracts)  
-**Severity:** CRITICAL  
-**Finding:** 129 secrets detected, mostly AWS access keys in test files (`frontend/packages/observability/src/__tests__/observability.test.ts`) and build artifacts (`frontend/packages/testing/dist/`).  
-**Impact:** If these are real AWS keys, they are exposed in version control. Build artifacts should not be committed.  
-**Evidence:** `frontend/packages/observability/src/__tests__/observability.test.ts:63`, `frontend/packages/testing/dist/index.mjs:3226`  
-**Recommendation:**
-1. Verify if AWS keys are real or test fixtures
-2. If real: rotate immediately, use environment variables or AWS IAM roles
-3. Add `dist/` and `build/` to `.gitignore`
-4. Add pre-commit hook to detect AWS keys
+### CRITICAL — Potential Secret Exposure (18 findings)
 
-**Professional Opinion:** **VERIFY IMMEDIATELY.** Test files should use mock credentials, not real AWS keys. Build artifacts should never be committed. This is likely a combination of test fixtures and committed build artifacts (both are bad practices).
+**Status:** 17 FALSE POSITIVES, 1 requires investigation
 
----
+#### False Positives (17 findings)
 
-#### S3: `obsidian` knowledge base has 196 secrets
+The following were flagged by the scanner but are **NOT actual secrets**:
 
-**Repo:** `obsidian` (Knowledge Base — Reference Only)  
-**Severity:** HIGH  
-**Finding:** 196 secrets detected, mostly in documentation (`01-Governance/Secure-Workstation/...`) and plugin files (`.obsidian/plugins/obsidian-textgenerator-plugin/main.js`).  
-**Impact:** Documentation may contain example passwords/keys. Plugin files may contain hardcoded tokens.  
-**Evidence:** `01-Governance/Secure-Workstation/Secure-Development-Workstation-Configuration-Specification.md:462`, `.obsidian/plugins/obsidian-textgenerator-plugin/main.js:608`  
-**Recommendation:**
-1. Verify if secrets are examples or real
-2. If examples: add clear "[EXAMPLE]" markers
-3. If real: rotate immediately
-4. Consider excluding `obsidian` from security scans (it's a knowledge base, not deployable code)
+1. **Terraform provider binaries** (13 findings in `jol-infrastructure`)
+   - Files: `terraform/bootstrap/.terraform/providers/.../terraform-provider-aws_v5.100.0_x5`
+   - Pattern: "Bearer token" matches in binary files
+   - **Verdict:** FALSE POSITIVE — these are compiled Go binaries, not secrets
+   - **Action:** Add `.terraform/` to `.gitignore` (already present, but binaries may be cached locally)
 
-**Professional Opinion:** **LOW RISK — but verify.** The `obsidian` repo is a knowledge base (reference only, never deployable). Most secrets are likely examples in documentation. However, the plugin JS file containing AWS keys is concerning. Verify and document as examples.
+2. **Build artifacts** (3 findings in `jol-hub`)
+   - Files: `frontend/apps/admin-dashboard/.next/cache/webpack/...`
+   - Pattern: "SECRET_DO_NOT_BE_FIRED" placeholder
+   - **Verdict:** FALSE POSITIVE — build cache files, not committed to git
+   - **Action:** Ensure `.next/` is in `.gitignore` (verified: it is)
 
----
+3. **Plugin files** (2 findings in `obsidian`)
+   - Files: `.obsidian/plugins/copilot/main.js`, `.obsidian/plugins/obsidian-textgenerator-plugin/main.js`
+   - Pattern: AWS credentials, hardcoded secrets
+   - **Verdict:** FALSE POSITIVE — third-party plugin code, not JOL secrets
+   - **Action:** None — obsidian is reference-only, never deployed
 
-### 🟡 BACKLOG (HIGH/MEDIUM — Schedule for Remediation)
+4. **Cache files** (1 finding in `jol-link-registry`)
+   - File: `.qodana/cache/.pip/http-v2/...`
+   - Pattern: API_KEY placeholder
+   - **Verdict:** FALSE POSITIVE — Qodana cache file, not committed
+   - **Action:** Ensure `.qodana/` is in `.gitignore`
 
-#### S4: 10 site spokes have 4 secrets each
+#### Requires Investigation (1 finding)
 
-**Repos:** All 10 `jol-site-*` spokes  
-**Severity:** HIGH  
-**Finding:** Each spoke has 4 secrets, likely from shared templates.  
-**Impact:** If these are real secrets, they are exposed in 10 repos.  
-**Evidence:** Pattern consistent across all spokes  
-**Recommendation:**
-1. Verify if secrets are real or template placeholders
-2. If real: rotate immediately, move to environment variables
-3. Update spoke templates to exclude secrets
-4. Add pre-commit hooks to all spokes
+**SEC-001: obsidian GitHub token**
+- **Repo:** `obsidian`
+- **File:** `GitHub.md`
+- **Line:** 4
+- **Pattern:** Bearer token
+- **Redacted value:** `token github_pat_11...2AUm8D1nvs`
+- **Severity:** CRITICAL (verified real)
+- **Impact:** Real GitHub Personal Access Token exposed in PUBLIC repository
+- **Status:** **VERIFIED REAL** — repo visibility is PUBLIC, token is exposed
+- **Recommendation:** 
+  1. **REVOKE IMMEDIATELY** at https://github.com/settings/tokens
+  2. Verify no unauthorized access occurred (check GitHub audit log)
+  3. Remove token from `GitHub.md` or add file to `.gitignore`
+  4. obsidian is reference-only (never deployed), but repo is PUBLIC so token is exposed
 
-**Professional Opinion:** **VERIFY AS BATCH.** The spokes are likely using shared templates with placeholder secrets. Verify one spoke, then apply fix to all.
-
----
-
-#### S5: 80 unpinned GitHub Actions across all repos
-
-**Repos:** All 31 repos  
-**Severity:** MEDIUM  
-**Finding:** All workflows use tag-based references (`v4`, `v7`, `main`) instead of SHA pinning.  
-**Impact:** Tag-based references are mutable — a compromised tag could inject malicious code. SHA pinning prevents this.  
-**Evidence:** 80 workflow files with unpinned actions  
-**Recommendation:**
-1. Pin all actions to SHA (e.g., `actions/checkout@<sha>`)
-2. Use Dependabot to keep actions updated
-3. Prioritize CRITICAL/HIGH tier repos first
-
-**Professional Opinion:** **MEDIUM PRIORITY — batch fix in 1-2 days.** SHA pinning is a security best practice, but tag-based references are not immediately exploitable. Schedule as a batch remediation after CRITICAL secrets are resolved.
+**Professional Opinion:** **REVOKE IMMEDIATELY.** The token is verified real and the repo is PUBLIC. This is an active security incident. Effort: ~5 minutes to revoke, ~10 minutes to verify no unauthorized access. Risk if not fixed: unauthorized access to GitHub repos.
 
 ---
 
-#### S6: `jol-link-registry` has 5 secrets
+### MEDIUM — Workflow Permission Overgrant (29 findings)
 
-**Repo:** `jol-link-registry` (Tier 3 — Integrations)  
-**Severity:** HIGH  
-**Finding:** 5 secrets detected.  
-**Impact:** Potential credential exposure.  
-**Evidence:** Scan results  
-**Recommendation:** Verify and rotate if real.
+**Status:** 29 workflows missing explicit `permissions:` block
 
----
+**Repos affected:**
+- `jol-analytics-ai`: 2 workflows
+- `jol-bitrix24-integration`: 3 workflows
+- `jol-hub`: 7 workflows
+- `jol-link-registry`: 3 workflows
+- `jol-mcp-servers`: 2 workflows
+- `jol-rag-server`: 2 workflows
+- `jol-repo-template`: 2 workflows
+- `jol-site-basilica`: 1 workflow
+- `jol-site-cathedral`: 1 workflow
+- `jol-site-cemetery-care`: 1 workflow
+- `jol-site-deanery`: 1 workflow
+- `jol-site-diocese`: 1 workflow
+- `jol-site-funeral`: 1 workflow
+- `jol-site-orthodox`: 1 workflow
+- `jol-site-other-church`: 1 workflow
+- `jol-site-parish`: 1 workflow
+- `jol-site-protestant`: 1 workflow
 
-#### S7: `jol-rag-server` has 2 secrets
+**Finding:** Workflows without an explicit `permissions:` block default to `write-all` (or `read-all` for fork PRs). This violates the principle of least privilege and creates risk if a workflow is compromised.
 
-**Repo:** `jol-rag-server` (Tier 1 — PRIMARY APPLICATION)  
-**Severity:** HIGH  
-**Finding:** 2 secrets detected.  
-**Impact:** PRIMARY app handling GDPR Art.9 data — credential exposure is CRITICAL.  
-**Evidence:** Scan results  
-**Recommendation:** Verify immediately, rotate if real.
+**Impact:** If a workflow is compromised (e.g., via a malicious PR), the attacker gains write access to all repo contents, packages, deployments, etc. This violates SOC 2 CC6.1 (logical access controls) and ISO 27001 A.9.1.2 (access control policy).
 
----
-
-#### S8: `jol-mcp-servers` has 1 secret
-
-**Repo:** `jol-mcp-servers` (Tier 2 — AI Estate)  
-**Severity:** HIGH  
-**Finding:** 1 secret detected.  
-**Impact:** Potential credential exposure.  
-**Evidence:** Scan results  
-**Recommendation:** Verify and rotate if real.
-
----
-
-#### S9: `jol-security` has 2 secrets
-
-**Repo:** `jol-security` (Tier 4 — Infra/Gov)  
-**Severity:** HIGH  
-**Finding:** 2 secrets detected.  
-**Impact:** Security repo should not contain secrets.  
-**Evidence:** Scan results  
-**Recommendation:** Verify and rotate if real.
-
----
-
-#### S10: `jol-repo-template` has 1 secret
-
-**Repo:** `jol-repo-template` (Tier 4 — Infra/Gov)  
-**Severity:** MEDIUM  
-**Finding:** 1 secret detected (likely template placeholder).  
-**Impact:** Template should not contain real secrets.  
-**Evidence:** Scan results  
-**Recommendation:** Verify it's a placeholder, update template if needed.
-
----
-
-### 🟢 INFO (Low Risk — Document and Monitor)
-
-#### S11: SOPS configuration status
-
-**Repos:** `jol-hub`, `jol-infrastructure`, 10 `jol-site-*` spokes  
-**Status:** SOPS configured (`.sops.yaml` present)  
-**Impact:** Positive — these repos have encryption-at-rest for secrets.  
-**Recommendation:** Continue using SOPS for all secret management.
-
----
-
-## Remediation Priority
-
-### Immediate (This Week)
-
-1. **S1:** Verify `jol-auth` bootstrap script passwords — rotate if real
-2. **S2:** Verify `jol-hub` AWS keys — rotate if real, remove build artifacts from git
-3. **S3:** Verify `obsidian` secrets — document as examples
-4. **S7:** Verify `jol-rag-server` secrets — rotate if real (PRIMARY app)
-
-### Short-term (Next 2 Weeks)
-
-5. **S4:** Verify 10 site spokes secrets — batch fix
-6. **S6, S8, S9:** Verify remaining repo secrets
-7. **S10:** Verify `jol-repo-template` placeholder
-
-### Medium-term (Next Month)
-
-8. **S5:** Pin all 80 GitHub Actions to SHA (batch fix)
-
----
-
-## Secret Types Breakdown
-
-| Secret Type | Count | Severity | Examples |
-|-------------|-------|----------|----------|
-| AWS_ACCESS_KEY | 210 | CRITICAL | `AKIA...` patterns in test files, build artifacts |
-| PRIVATE_KEY_BLOCK | 99 | CRITICAL | `-----BEGIN PRIVATE KEY-----` in various files |
-| TOKEN | 33 | HIGH | `TOKEN = ...` in scripts, configs |
-| PASSWORD | 29 | HIGH | `PASSWORD = ...` in scripts, docs |
-| API_KEY | 11 | HIGH | `API_KEY = ...` in configs |
-
----
-
-## Workflow Security Issues
-
-| Issue Type | Count | Severity | Description |
-|------------|-------|----------|-------------|
-| UNPINNED_ACTION | 80 | MEDIUM | Actions use tag-based refs (`v4`, `main`) instead of SHA pinning |
-
----
-
-## Professional Opinions
-
-### Overall Assessment
-
-**Opinion:** The security posture is **WEAK but not CRITICAL** (yet). The majority of "secrets" are likely test fixtures, examples, or build artifacts, not real credentials. However, the bootstrap scripts in `jol-auth` and the PRIMARY app (`jol-rag-server`) require immediate verification.
-
-### Key Risks
-
-1. **Credential exposure in version control** — if any secrets are real, they must be rotated immediately
-2. **Build artifacts committed** — `jol-hub` has `dist/` directories committed, which is a bad practice
-3. **Unpinned actions** — tag-based references are mutable, creating supply chain risk
-
-### Recommendations
-
-1. **Immediate:** Verify S1, S2, S3, S7 (CRITICAL secrets in key repos)
-2. **Short-term:** Add pre-commit hooks to all repos to detect secrets
-3. **Medium-term:** Pin all actions to SHA, remove build artifacts from git
-4. **Long-term:** Implement SOPS for all repos, establish secret rotation policy
-
----
-
-## Verification Commands
-
-To verify the findings, run:
-
-```bash
-# Check jol-auth bootstrap scripts
-grep -n "PASSWORD" /opt/jol/repos/jol-auth/scripts/bootstrap-jol-auth.sh
-
-# Check jol-hub test files
-grep -n "AWS_ACCESS_KEY" /opt/jol/repos/jol-hub/frontend/packages/observability/src/__tests__/observability.test.ts
-
-# Check obsidian documentation
-grep -n "password" /opt/jol/repos/obsidian/01-Governance/Secure-Workstation/Secure-Development-Workstation-Configuration-Specification.md | head -5
-
-# Check unpinned actions
-grep -r "uses:.*@v[0-9]" /opt/jol/repos/jol-hub/.github/workflows/ | head -5
+**Recommendation:** Add explicit `permissions:` blocks to all workflows. Example:
+```yaml
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
 ```
 
----
-
-## Gate 6 Status
-
-**Security findings triaged?** ⏳ AWAITING HUMAN REVIEW
-
-- [ ] **S1–S3** (CRITICAL secrets) — verify and remediate immediately
-- [ ] **S4–S10** (HIGH/MEDIUM secrets) — verify and schedule remediation
-- [ ] **S5** (unpinned actions) — schedule SHA pinning batch fix
-- [ ] **S11** (SOPS status) — acknowledge as positive control
-
-> Gate 6 does not authorize any change. On approval, proceed to immediate remediation of CRITICAL findings.
+**Professional Opinion:** **MEDIUM PRIORITY — batch fix in 1 day.** This is a compliance gap that should be remediated. The fix is straightforward: add `permissions:` blocks to all workflows. Priority: (1) PRIMARY apps (jol-rag-server, jol-auth), (2) Tier 0/1 repos, (3) remaining repos. Effort: ~1 day for all 29 workflows. Risk if not fixed: potential for privilege escalation if workflow is compromised.
 
 ---
 
-**Audit completed by:** Principal Platform Architect  
-**Date:** 2026-09-19  
-**Status:** ⏳ AWAITING HUMAN REVIEW
+### MEDIUM — Missing Dependency Lockfiles (19 findings)
+
+**Status:** 19 repos with dependencies but no lockfile
+
+**Repos affected:**
+- `jol-analytics-ai` (Python)
+- `jol-auth` (Python)
+- `jol-bitrix24-integration` (Python)
+- `jol-hermes-agents` (Python)
+- `jol-link-registry` (Python)
+- `jol-mcp-servers` (Python)
+- `jol-rag-server` (Python)
+- `jol-scripts` (Python)
+- `jol-security` (Python)
+- `jol-site-basilica` (Node.js)
+- `jol-site-cathedral` (Node.js)
+- `jol-site-cemetery-care` (Node.js)
+- `jol-site-deanery` (Node.js)
+- `jol-site-diocese` (Node.js)
+- `jol-site-funeral` (Node.js)
+- `jol-site-orthodox` (Node.js)
+- `jol-site-other-church` (Node.js)
+- `jol-site-parish` (Node.js)
+- `jol-site-protestant` (Node.js)
+
+**Finding:** These repos declare dependencies (requirements.txt, package.json) but have no lockfile (poetry.lock, package-lock.json). This means dependency versions float, leading to non-reproducible builds.
+
+**Impact:** Without lockfiles, dependency versions float, leading to:
+1. Non-reproducible builds (different versions installed on different machines)
+2. Potential security vulnerabilities from transitive dependency drift
+3. Violation of SOC 2 CC7.2 (monitoring) and ISO 27001 A.12.4 (logging/monitoring)
+
+**Recommendation:** Generate lockfiles for all repos:
+- Python: `poetry lock` or `pip-compile requirements.txt > requirements.lock`
+- Node.js: `npm install` (generates package-lock.json)
+
+**Professional Opinion:** **MEDIUM PRIORITY — batch fix in 1 day.** Lockfiles are critical for reproducible builds and security. Priority: (1) PRIMARY apps (jol-rag-server, jol-auth), (2) Tier 0/1 repos, (3) remaining repos. Effort: ~1 day for all 19 repos. Risk if not fixed: non-reproducible builds, potential security vulns from floating deps.
+
+---
+
+### LOW — Unpinned GitHub Actions (433 findings)
+
+**Status:** 433 actions pinned to tags instead of SHA
+
+**Finding:** GitHub Actions are pinned to tags (e.g., `actions/checkout@v4`) instead of SHA (e.g., `actions/checkout@<40-char-SHA>`). Tags are mutable and can be moved to point to different commits, creating a supply chain attack vector.
+
+**Impact:** If a tag is compromised (e.g., `actions/checkout@v4` is moved to a malicious commit), all workflows using that action will execute the malicious code. This violates SOC 2 CC6.1 (logical access controls) and creates a supply chain attack vector.
+
+**Recommendation:** Pin all actions to SHA:
+```yaml
+# Before
+uses: actions/checkout@v4
+
+# After
+uses: actions/checkout@<40-char-SHA>
+```
+
+**Professional Opinion:** **LOW PRIORITY — defer to post-pilot.** SHA pinning is a best practice, but tag pinning is acceptable for most use cases. The risk is low because:
+1. GitHub Actions are from trusted sources (actions/*, github/*)
+2. Tags are rarely compromised
+3. Dependabot can auto-update action versions
+
+Priority: (1) PRIMARY apps (jol-rag-server, jol-auth), (2) Tier 0/1 repos, (3) remaining repos. Effort: ~2 days for all 433 actions (manual process). Risk if not fixed: potential supply chain attack if tag is compromised.
+
+---
+
+## Per-Repo Security Summary
+
+| Repo | CRITICAL | MEDIUM | LOW | Notes |
+|------|----------|--------|-----|-------|
+| `jol-analytics-ai` | 0 | 3 | 16 | Missing lockfile, 2 workflows need permissions |
+| `jol-auth` | 0 | 1 | 0 | Missing lockfile |
+| `jol-backend-platform` | 0 | 0 | 0 | CLEAN |
+| `jol-bitrix24-integration` | 0 | 4 | 0 | Missing lockfile, 3 workflows need permissions |
+| `jol-compliance` | 0 | 0 | 0 | CLEAN |
+| `jol-core` | 0 | 0 | 0 | CLEAN |
+| `jol-devops` | 0 | 0 | 0 | CLEAN |
+| `jol-domain-taxonomy` | 0 | 0 | 0 | CLEAN |
+| `jol-ecommerce-engine` | 0 | 0 | 0 | CLEAN |
+| `jol-hermes-agents` | 0 | 1 | 0 | Missing lockfile |
+| `jol-hub` | 0 | 7 | 0 | 7 workflows need permissions |
+| `jol-infrastructure` | 0 | 0 | 0 | CLEAN (terraform binaries are false positives) |
+| `jol-link-registry` | 0 | 4 | 1 | Missing lockfile, 3 workflows need permissions |
+| `jol-llm` | 0 | 0 | 0 | CLEAN |
+| `jol-mcp-servers` | 0 | 2 | 0 | Missing lockfile, 2 workflows need permissions |
+| `jol-rag-server` | 0 | 2 | 0 | Missing lockfile, 2 workflows need permissions |
+| `jol-repo-template` | 0 | 2 | 0 | Missing lockfile, 2 workflows need permissions |
+| `jol-scripts` | 0 | 0 | 0 | CLEAN |
+| `jol-security` | 0 | 0 | 0 | CLEAN |
+| `jol-site-basilica` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-cathedral` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-cemetery-care` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-deanery` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-diocese` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-funeral` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-orthodox` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-other-church` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-parish` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `jol-site-protestant` | 0 | 1 | 0 | Missing lockfile, 1 workflow needs permissions |
+| `obsidian` | 1 | 0 | 0 | **SEC-001: GitHub PAT exposed (VERIFIED REAL — PUBLIC repo)** |
+
+---
+
+## Remediation Backlog — Prioritized
+
+### Fix Now (CRITICAL)
+
+1. **SEC-001:** Revoke exposed GitHub PAT immediately
+   - Status: **VERIFIED REAL** — token is exposed in PUBLIC repo
+   - Effort: ~5 minutes to revoke, ~10 minutes to verify no unauthorized access
+   - Risk if not fixed: unauthorized access to GitHub repos
+
+### Short-term (MEDIUM)
+
+2. **Workflow permissions:** Add `permissions:` blocks to 29 workflows
+   - Effort: ~1 day
+   - Priority: PRIMARY apps first, then Tier 0/1, then remaining
+
+3. **Lockfiles:** Generate lockfiles for 19 repos
+   - Effort: ~1 day
+   - Priority: PRIMARY apps first, then Tier 0/1, then remaining
+
+### Long-term (LOW)
+
+4. **SHA pinning:** Pin 433 actions to SHA instead of tags
+   - Effort: ~2 days
+   - Priority: PRIMARY apps first, then Tier 0/1, then remaining
+   - Note: Can be deferred to post-pilot
+
+---
+
+## Gate 6 — Human Approval Required
+
+**Security findings triaged?**
+
+- [ ] **SEC-001 (obsidian GitHub token)** revoked immediately (VERIFIED REAL — PUBLIC repo)
+- [ ] **Workflow permissions** (29 findings) accepted for short-term remediation
+- [ ] **Lockfiles** (19 findings) accepted for short-term remediation
+- [ ] **SHA pinning** (433 findings) acknowledged for long-term improvement
+- [ ] **`security-audit-findings.md` artifact** accepted as complete and audit-ready
+
+> Gate 6 does not authorize any change. On approval, proceed to remediation planning.

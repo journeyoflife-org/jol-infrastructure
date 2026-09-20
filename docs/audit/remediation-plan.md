@@ -3,7 +3,7 @@
 **Date:** 2026-09-19  
 **Status:** ⏳ PROPOSED — AWAITING APPROVAL  
 **Pilot Repository:** `jol-infrastructure`  
-**Total Effort:** 136-248 hours  
+**Total Effort:** 196-337 hours  
 **Timeline:** Q4 2026 / Q1 2027
 
 ---
@@ -17,12 +17,12 @@ This remediation plan addresses 27 findings from the JOL repository audit. The p
 | Batch | Priority | Repos | Findings | Effort | Timeline |
 |-------|----------|-------|----------|--------|----------|
 | **0** | 🔴 IMMEDIATE | 1 | 1 | 4-8 hours | This week |
-| **1** | 🟠 Q4 2026 | 4 | 5 | 80-144 hours | Q4 2026 |
+| **1** | 🟠 Q4 2026 | 4 | 7 | 96-168 hours | Q4 2026 |
 | **2** | 🟡 Q1 2027 | 10 | 6 | 52-96 hours | Q1 2027 |
 | **3** | 🟡 Post-pilot | 15 | 4 | 552-1064 hours | Post-pilot |
-| **TOTAL** | — | 29 | 17 | **690-1314 hours** | — |
+| **TOTAL** | — | 29 | 18 | **704-1336 hours** | — |
 
-*Note: 10 findings are already FIXED or VERIFIED as false positives (H1, H2, H3, S2-S4, S6-S10)*
+*Note: 9 findings are already FIXED or VERIFIED as false positives (H3, S2-S4, S6-S10)*
 
 ---
 
@@ -79,15 +79,15 @@ This remediation plan addresses 27 findings from the JOL repository audit. The p
 
 **Priority:** 🟠 HIGH  
 **Pilot:** `jol-infrastructure` (process proof)  
-**Effort:** 80-144 hours  
+**Effort:** 96-168 hours  
 **Owner:** Platform Architect + DPO + Legal
 
 ### Findings
 
 | ID | Finding | Repo | Effort |
 |----|---------|------|--------|
-| **H1** | ~~`jol-core` is empty~~ — ✅ DONE (ADR-007) | `jol-core` | 0 hours |
-| **H2** | ~~`jol-rag-server` minimal CI~~ — ✅ DONE (commit `0b10d86`) | `jol-rag-server` | 2 hours |
+| **H1** | `jol-core` is empty (no shared models) | `jol-core` | 0 hours (de-scope) |
+| **H2** | `jol-rag-server` minimal CI | `jol-rag-server` | 16-24 hours |
 | **C1** | Privacy policies missing | `jol-compliance` | 40-80 hours |
 | **C2** | Compliance matrix incomplete | `jol-compliance` | 16-24 hours |
 | **C3** | ROPA templates only | `jol-compliance` | 20-30 hours |
@@ -98,17 +98,17 @@ This remediation plan addresses 27 findings from the JOL repository audit. The p
 
 #### Week 1-2: Architecture (H1, H2, M5)
 
-1. ~~**De-scope `jol-core`**~~ (0 hours) — ✅ **DONE** (ADR-007)
-   - ~~Document decision in ADR~~
-   - ~~Update ecosystem map~~
+1. **De-scope `jol-core`** (0 hours)
+   - Document decision in ADR
+   - Update ecosystem map
 
-2. ~~**Add CI to `jol-rag-server`**~~ (2 hours) — ✅ **DONE** (commit `0b10d86`)
-   - ~~Add `security-scan` workflow~~ — ✅ secrets-scan.yml (TruffleHog)
-   - ~~Add `dependency-review` workflow~~ — ✅ pip-audit now blocks
-   - ~~Add `lockfile_validation` workflow~~ — ✅ lockfile-validation job added
-   - ~~Add `codeql` workflow~~ — ✅ codeql.yml (security-extended)
-   - ~~Add `compliance-check` workflow~~ — ✅ compliance-check.yml (GDPR Art.9)
-   - ~~Test all workflows~~ — ✅ All validated
+2. **Add CI to `jol-rag-server`** (16-24 hours)
+   - Add `security-scan` workflow
+   - Add `dependency-review` workflow
+   - Add `lockfile-validation` workflow
+   - Add `codeql` workflow
+   - Add `compliance-check` workflow
+   - Test all workflows
 
 3. **Remove `jol-auth` .env from git** (2-4 hours)
    - Add `.env` to `.gitignore`
@@ -147,7 +147,7 @@ This remediation plan addresses 27 findings from the JOL repository audit. The p
 
 ### Success Criteria
 
-- ✅ `jol-rag-server` has 4 CI workflows (10 jobs)
+- ✅ `jol-rag-server` has 5 CI workflows
 - ✅ `jol-auth` .env removed from git
 - ✅ 27 privacy policies created and published
 - ✅ Compliance matrix has 0 placeholders
@@ -329,10 +329,10 @@ This remediation plan addresses 27 findings from the JOL repository audit. The p
 | Batch | Effort | Cost (@ €100/hour) | Timeline |
 |-------|--------|--------------------|----------|
 | 0 (Immediate) | 4-8 hours | €400-800 | This week |
-| 1 (Q4 2026) | 80-144 hours | €8,000-14,400 | Q4 2026 |
+| 1 (Q4 2026) | 96-168 hours | €9,600-16,800 | Q4 2026 |
 | 2 (Q1 2027) | 52-96 hours | €5,200-9,600 | Q1 2027 |
 | 3 (Post-pilot) | 552-1064 hours | €55,200-106,400 | Post-pilot |
-| **TOTAL** | **690-1314 hours** | **€69,000-131,400** | — |
+| **TOTAL** | **704-1336 hours** | **€70,400-133,600** | — |
 
 ---
 
@@ -459,21 +459,21 @@ Weekly status updates to:
 - ❌ No remediation
 - ❌ S1 remains CRITICAL
 - ❌ Compliance gaps remain
-- **Effort saved:** 136-248 hours
+- **Effort saved:** 196-337 hours
 - **Risk:** HIGH
 
 ### Option (b): Audit then remediate — continue to Step 9 ✅ RECOMMENDED
 - ✅ Remediate CRITICAL/HIGH findings
 - ✅ Address S1 (rotate passwords)
 - ✅ Address compliance gaps
-- **Effort:** 84-152 hours (Batch 0 + Batch 1)
+- **Effort:** 100-176 hours (Batch 0 + Batch 1)
 - **Risk:** MEDIUM
 
 ### Option (c): Full workflow — continue through Step 11
 - ✅ Remediate all findings
 - ✅ Verify remediation
 - ✅ Final sign-off
-- **Effort:** 690-1314 hours (all batches)
+- **Effort:** 704-1336 hours (all batches)
 - **Risk:** LOW
 
 ---

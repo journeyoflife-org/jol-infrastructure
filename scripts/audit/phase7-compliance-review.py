@@ -19,7 +19,7 @@ OUTPUT_FILE = OUTPUT_DIR / "phase7-compliance.json"
 # Sensitivity table (from Step 3 / AGENTS.md §0.2)
 SENSITIVITY_TABLE = {
     "Tier 0 (Contracts)": {
-        "repos": ["jol-hub"],
+        "repos": ["jol-core", "jol-hub"],
         "data_types": ["GDPR Art.9 (religious)", "PCI-DSS (donations)", "PII"],
         "compliance": ["GDPR", "PCI-DSS", "ISO 27001", "SOC 2"],
         "risk_level": "CRITICAL"
