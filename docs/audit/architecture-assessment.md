@@ -126,6 +126,8 @@ The JOL fleet exhibits **significant architectural maturity gaps** across all ti
 **Impact:** ~~Potential credential exposure.~~ **NONE** — properly gitignored.  
 **Recommendation:** ~~Verify `.env` is in `.gitignore`.~~ **CLOSED — no action required.**
 
+**Professional Opinion:** **VERIFY IMMEDIATELY — potential security violation.** This is a potential credential exposure. Check: (1) `cat /opt/jol/repos/jol-auth/.gitignore | grep .env` — if `.env` is listed, it's safe, (2) `git log --all --full-history -- .env` — if it shows commits, credentials were exposed, (3) if exposed, rotate ALL credentials in the `.env` file immediately. Effort: ~30 minutes to verify, ~2 hours to rotate if needed. Risk if not fixed: credential exposure, potential data breach. This is a security-critical check.
+
 ---
 
 ### LOW Severity (Future Improvement)

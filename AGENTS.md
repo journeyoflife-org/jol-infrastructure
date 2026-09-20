@@ -48,16 +48,18 @@ No repository exists in isolation. When modifying any repo, trace impacts throug
 
 ```
 Tier 0 (Contracts)      Tier 1 (Primary Apps)      Tier 2 (AI Estate)        Tier 4 (Infra/Gov)
-├─ jol-core             ├─ jol-rag-server PRIMARY  ├─ jol-llm                ├─ jol-infrastructure SECONDARY
-├─ jol-hub              ├─ jol-backend-platform    ├─ jol-mcp-servers        ├─ jol-devops
-└─ jol-auth                                        └─ jol-hermes-agents      ├─ jol-security
-                        ├─ jol-ecommerce-engine                                ├─ jol-compliance
-                        └─ jol-analytics-ai                                    ├─ jol-scripts
-Tier 3 (Integrations)                                                          └─ jol-repo-template
+├─ jol-hub              ├─ jol-rag-server PRIMARY  ├─ jol-llm                ├─ jol-infrastructure SECONDARY
+└─ jol-auth             ├─ jol-backend-platform    ├─ jol-mcp-servers        ├─ jol-devops
+                        ├─ jol-ecommerce-engine    └─ jol-hermes-agents      ├─ jol-security
+                        └─ jol-analytics-ai                                  ├─ jol-compliance
+                                                                             ├─ jol-scripts
+Tier 3 (Integrations)                                                        └─ jol-repo-template
 ├─ jol-link-registry       (+ obsidian — knowledge base, reference only, never deployable)
 ├─ jol-domain-taxonomy
 └─ jol-bitrix24-integration
 ```
+
+> **De-scoped (2026-09-19, ADR-007)**: `jol-core` was removed from Tier 0. The repo contains governance docs and standalone reference scripts but no shared library structure, no tests, no CI, and no downstream consumers. Tier 0 contract edges are convention/HTTP, not enforced package dependencies. `jol-core` remains in the fleet as a tombstone for future re-evaluation.
 
 > **Frontend home (2026-09-11)**: all church-tier UI lives in `jol-hub` (Tier 0 monorepo,
 > `packages/*` shared libraries) and its twelve `jol-site-*` spokes, resolved per tenant at
@@ -113,7 +115,7 @@ Tier 3 (Integrations)                                                          �
 ```
 
 #### Cross-Repo Dependencies
-- **Upstream**: `jol-core` (models), `jol-auth` (identity), `jol-llm` (inference contract)
+- **Upstream**: `jol-auth` (identity), `jol-llm` (inference contract)
 - **Downstream**: `jol-hub` + `jol-site-*` spokes (UI — formerly `jol-frontend-platform`, retired 2026-09-11), `jol-analytics-ai` (telemetry, anonymized)
 - **Runtime dependency**: `llm-prod-lt01` must expose `qwen3:30b` as `mistral-7b-instruct`
 
@@ -335,7 +337,7 @@ systemctl restart jol-git-server && systemctl is-active jol-git-server
 3. Extraction trigger: move MCP deployment under an Ansible role templating `mcp.env` from inventory (same pattern as rag/llm hosts) — manual env files will drift again otherwise.
 
 #### Cross-Repo Dependencies
-- **Upstream**: `jol-core` (shared audit/auth models), `jol-infrastructure` (host hardening, systemd units)
+- **Upstream**: `jol-infrastructure` (host hardening, systemd units)
 - **Downstream**: `jol-hermes-agents` (aspirational MCP client consumer — no MCP client exists in that repo yet; see §2.4)
 - **Runtime**: `mcp-svc` nologin user; `/var/log/jol-mcp` owned by `mcp-svc:mcp-svc` 0750
 
