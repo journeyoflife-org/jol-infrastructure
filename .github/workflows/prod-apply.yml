@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Validate inputs
         run: |
@@ -105,16 +105,16 @@ uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       name: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout repository
-uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Configure AWS credentials (OIDC)
-uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708  # v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708  # v5
         with:
           role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
-uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -133,7 +133,7 @@ uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3
             > apply-audit-log.txt
 
       - name: Upload apply audit log
-uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: apply-audit-${{ github.event.inputs.environment }}-${{ github.run_id }}
           path: apply-audit-log.txt
@@ -151,16 +151,16 @@ uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
       name: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout repository
-uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Configure AWS credentials (OIDC)
-uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708  # v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708  # v5
         with:
           role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup kubectl
-uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede  # v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede  # v4
 
       - name: Configure kubeconfig
         run: |
@@ -184,16 +184,16 @@ uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede  # v4
       name: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout repository
-uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Configure AWS credentials (OIDC)
-uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708  # v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708  # v5
         with:
           role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Helm
-uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5
 
       - name: Configure kubeconfig
         run: |
