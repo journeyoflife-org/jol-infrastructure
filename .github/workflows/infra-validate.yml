@@ -40,12 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0
 
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@main
+uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64  # main
         with:
           extra_args: --only-verified
 
@@ -59,10 +59,10 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@v12
+uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e  # v12
         with:
           directory: terraform/
           framework: terraform
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload SARIF results
         if: always() && github.event_name != 'pull_request'
-        uses: github/codeql-action/upload-sarif@v4
+uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4
         with:
           sarif_file: checkov-results.sarif
 
@@ -86,12 +86,12 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Run Trivy on Terraform
         # trivy-action tags are v-prefixed (0.28.0 never existed — CI could
         # not resolve it); pinned to latest release v0.36.0.
-        uses: aquasecurity/trivy-action@v0.36.0
+uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: 'terraform/'
@@ -104,7 +104,7 @@ jobs:
 
       - name: Upload SARIF results
         if: always() && github.event_name != 'pull_request'
-        uses: github/codeql-action/upload-sarif@v4
+uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4
         with:
           sarif_file: trivy-results.sarif
 
@@ -118,10 +118,10 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Setup OPA
-        uses: open-policy-agent/setup-opa@v2
+uses: open-policy-agent/setup-opa@34a30e8a924d1b03ce2cf7abe97250bbb1f332b5  # v2
         with:
           version: latest
 
@@ -139,7 +139,7 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Run ShellCheck
         run: |
@@ -154,10 +154,10 @@ jobs:
     needs: trufflehog-scan
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Setup Helm
-        uses: azure/setup-helm@v5
+uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5
 
       - name: Lint Helm charts
         run: |
@@ -188,11 +188,11 @@ jobs:
     # does not flip the check-run conclusion that branch protection reads.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Dependency Review
         continue-on-error: true
-        uses: actions/dependency-review-action@v5
+uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
@@ -220,12 +220,12 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0
 
       - name: Run Qodana
-        uses: JetBrains/qodana-action@v2026.2.1
+uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77  # v2026.2.1
         with:
           pr-mode: true
           upload-result: true
