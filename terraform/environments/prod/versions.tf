@@ -15,7 +15,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.60"  # frozen — Proxmox-only, never deployed to AWS
+      version = "~> 6.65"  # frozen — Proxmox-only, never deployed to AWS
     }
   }
 }
