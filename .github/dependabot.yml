@@ -57,12 +57,3 @@ updates:
     ignore:
       - dependency-name: "hashicorp/aws"
         versions: ["6.x"]
-
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels:
-      - "dependencies"
-      - "python"
