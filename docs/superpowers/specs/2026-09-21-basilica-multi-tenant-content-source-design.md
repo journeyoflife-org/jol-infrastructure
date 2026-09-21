@@ -211,27 +211,27 @@ Contract + fallback-parity tests · Wave −1 isolation re-run at API layer unde
 
 | ID | Finding | Sev | Wave | Status |
 |---|---|---|---|---|
-| C1 | JWT carries no tenant claim (`serializers.py:136-142`) | CRITICAL | −1 | open |
-| C2 | `X-Tenant-ID` unvalidated; membership never checked (`middleware.py:166,239-273`) → impersonation | CRITICAL | −1 | open |
-| C3 | Content API: unscoped read, client-writable `organization`, fail-open guard (`views.py:22-44`, `serializers.py:65-84`, `models.py:129-132`) | CRITICAL | −1 | open |
-| C4 | "RLS" claimed, not implemented; `ATOMIC_REQUESTS` unset + `CONN_MAX_AGE=600` | HIGH | −1 | open |
-| C5 | Same unscoped pattern in `users` app (`views.py:177-193`) — systemic | HIGH | −1 | open |
+| C1 | JWT carries no tenant claim (`serializers.py:136-142`) | CRITICAL | −1 | **closed** (PR #136) |
+| C2 | `X-Tenant-ID` unvalidated; membership never checked (`middleware.py:166,239-273`) → impersonation | CRITICAL | −1 | **closed** (PR #136) |
+| C3 | Content API: unscoped read, client-writable `organization`, fail-open guard (`views.py:22-44`, `serializers.py:65-84`, `models.py:129-132`) | CRITICAL | −1 | **closed** (PR #136) |
+| C4 | "RLS" claimed, not implemented; `ATOMIC_REQUESTS` unset + `CONN_MAX_AGE=600` | HIGH | −1 | **closed** (PR #136) |
+| C5 | Same unscoped pattern in `users` app (`views.py:177-193`) — systemic | HIGH | −1 | **closed** (PR #136) |
 | F5 | Bitrix24 on-prem (README) vs `*.bitrix24.eu` cloud (LT config) contradiction; Art. 9 in SaaS | HIGH | pre-req | DPIA required |
-| F12 | Backend isolation violates ratified ADR-001 (shared-schema) | HIGH | −1 | open |
-| F13 | Resolver emits `t_<slug>`/`x-tenant-schema`; backend ignores it | HIGH | −1 | open |
+| F12 | Backend isolation violates ratified ADR-001 (shared-schema) | HIGH | −1 | **closed** (PR #136) |
+| F13 | Resolver emits `t_<slug>`/`x-tenant-schema`; backend ignores it | HIGH | −1 | **closed** (PR #136) |
 | F16 | `slugFromHost` left-most-label bug vs multi-label deploy domains | HIGH | 0 | fixed (pre-flight PASS) |
 | F17 | Build-breaking half-rename `@jol-hub`↔`@journeyoflife-org` | HIGH (blocker) | 0 | fixed (pre-flight PASS) |
-| F14 | ADR-001 OPEN ACTION: spec delta vs `jol-db-pilot-lt01.md` | MEDIUM | 0 | open |
-| F15 | DB-name drift `jol-db-pilot-lt01` vs `jol_lt_platform_prod` | MEDIUM | 0 | open |
-| F6 | Locale-set drift: backend has `pl` no `ru`; frontend has `ru` no `pl`; `ru`-first fallback | MEDIUM | 0 | open |
+| F14 | ADR-001 OPEN ACTION: spec delta vs `jol-db-pilot-lt01.md` | MEDIUM | 0 | **closed** (PR #4, deploy schema $comment) |
+| F15 | DB-name drift `jol-db-pilot-lt01` vs `jol_lt_platform_prod` | MEDIUM | 0 | **closed** (PR #4, deploy schema $comment) |
+| F6 | Locale-set drift: backend has `pl` no `ru`; frontend has `ru` no `pl`; `ru`-first fallback | MEDIUM | 0 | **closed** (PR #137, FALLBACK_ORDER lt-first + SSOT-derived regex) |
 | F7 | `LANGUAGE_CODE=en-us`, `TIME_ZONE=UTC`, `Page.language` default `en` vs LT-first | MEDIUM | −1 | open |
-| F8 | Mass schedule no recurrence (dated fixtures go stale) | MEDIUM | 0 | fixed by D12 |
+| F8 | Mass schedule no recurrence (dated fixtures go stale) | MEDIUM | 0 | **closed** (PR #137, D12 RRULE) |
 | F9 | `postgres/postgres` default creds; AuditLog not wired to content mutations | MEDIUM | −1 | open |
 | F19 | Spoke `resolve-locale.ts` duplicates shared logic (INV-1) | MEDIUM | 1 | open |
-| B1 | Tenant-count SSOT drift (21/23/31 comments vs 32 array) | MEDIUM | 0 | open |
+| B1 | Tenant-count SSOT drift (21/23/31 comments vs 32 array) | MEDIUM | 0 | **closed** (PR #137, stale comments fixed) |
 | B2 | Per-tenant VM model incompatible with topology A / infeasible at ~1,300 | HIGH | 0 | fixed by D14 |
 | F10 | Two-backend split-brain; resolver→wrong repo/path (`/api/v1/tenants` absent) | MEDIUM | 1 | fixed by D2/D9 |
-| F18 | LRU 512 < ~1,300 tenants | LOW | 0 | open |
+| F18 | LRU 512 < ~1,300 tenants | LOW | 0 | **closed** (PR #137, LRU 2048) |
 | F11 | `.env` (4.9 KB) + `counter_*.db`/`histogram_*.db` in tree — gitignored | LOW | −1 | verify never committed |
 | — | Open `/metrics` in prod; `ALLOWED_HOSTS` domain mismatch; no CSP; prod throttle clobber (verify `apps/core/throttling.py`) | MEDIUM | −1 | open |
 
