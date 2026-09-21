@@ -49,7 +49,7 @@ No repository exists in isolation. When modifying any repo, trace impacts throug
 ```
 Tier 0 (Contracts)      Tier 1 (Primary Apps)      Tier 2 (AI Estate)        Tier 4 (Infra/Gov)
 ├─ jol-hub              ├─ jol-rag-server PRIMARY  ├─ jol-llm                ├─ jol-infrastructure SECONDARY
-└─ jol-auth             ├─ jol-backend-platform    ├─ jol-mcp-servers        ├─ jol-devops
+└─ jol-auth             ├─ jol-mcp-servers        ├─ jol-devops
                         ├─ jol-ecommerce-engine    └─ jol-hermes-agents      ├─ jol-security
                         └─ jol-analytics-ai                                  ├─ jol-compliance
                                                                              ├─ jol-scripts
@@ -60,6 +60,8 @@ Tier 3 (Integrations)                                                        └
 ```
 
 > **De-scoped (2026-09-19, ADR-007)**: `jol-core` was removed from Tier 0. The repo contains governance docs and standalone reference scripts but no shared library structure, no tests, no CI, and no downstream consumers. Tier 0 contract edges are convention/HTTP, not enforced package dependencies. `jol-core` remains in the fleet as a tombstone for future re-evaluation.
+
+> **Archived (2026-09-22, D2)**: `jol-backend-platform` was an empty scaffold repo. All backend development happens in `jol-hub/backend/django` (Django 6.0.3 + DRF 3.16). The repo now contains only an archive pointer README.
 
 > **Frontend home (2026-09-11)**: all church-tier UI lives in `jol-hub` (Tier 0 monorepo,
 > `packages/*` shared libraries) and its twelve `jol-site-*` spokes, resolved per tenant at
