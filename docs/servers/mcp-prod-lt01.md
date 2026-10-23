@@ -11,7 +11,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | Model Context Protocol server, tool registry, agent integrations |
 | **SSH Policy**     | key-only                                   |
-| **Backup Enabled** | yes                                        |
+| **Backup Enabled** | **NO (verified 2026-10-21)** — host pve-prod-hv01 has no PBS datastore and no valid backup job; VMID 101 has never been dumped |
 | **Monitoring**     | yes (node-exporter)                        |
 | **VMID**           | 101                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -55,7 +55,14 @@ UFW: default deny incoming, allow outgoing, enabled at boot (2026-08-03).
 
 ## Backup Policy
 
-- VM-level backup via PBS (nightly)
+- ⚠ NOT IN FORCE (verified 2026-10-21): no backup of VMID 101 exists anywhere.
+  pve-prod-hv01 has no PBS datastore registered; its only job entry is rejected by
+  the scheduler parser (`pvesh get /cluster/backup` → `[]`). The only recovery path
+  would be re-deploy from the bare repo `/opt/jol/git/jol-mcp-servers.git` plus the
+  guest's `/etc/jol-mcp/mcp.env` — both single copies, and no restore has ever been
+  tested. ⚠ UNVERIFIED — manual check required on whether that rebuild is complete.
+  Procedure to close: `docs/runbooks/hv01-storage-backup-reconfiguration.md`.
+- Target: VM-level backup via PBS (nightly)
 - RPO: 24 h | RTO: 4 h
 
 ## Monitoring Expectations

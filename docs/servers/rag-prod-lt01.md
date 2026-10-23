@@ -11,7 +11,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | RAG services, vector databases, document indexing, embeddings |
 | **SSH Policy**     | key-only                                   |
-| **Backup Enabled** | yes                                        |
+| **Backup Enabled** | **NO (verified 2026-10-21)** — host pve-prod-hv01 has no PBS datastore and no valid backup job |
 | **Monitoring**     | yes (node-exporter)                        |
 | **VMID**           | 100                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -101,7 +101,16 @@ isolation is provided by the container runtime.
 
 ## Backup Policy
 
-- VM-level backup via PBS (nightly), RPO 24 h / RTO 4 h
+- ⚠ NOT IN FORCE (verified 2026-10-21): the nightly PBS backup claimed below does
+  not run. pve-prod-hv01 has no PBS datastore registered and its `job-vm100-nightly`
+  is rejected by the scheduler parser. The only artifact is a manual dump
+  `vzdump-qemu-100-2026_08_12-23_26_27.vma.zst` (14 GB) stored on the **same NVMe**
+  as this VM — it protects against deletion/corruption, not against device loss.
+  Fix procedure: `docs/runbooks/hv01-storage-backup-reconfiguration.md`;
+  evidence: `docs/compliance/evidence/hv01-storage-inspection-20261021.txt`.
+  Downstream impact: the `jol-rag-server` audit checklist item "VM backup: PBS
+  nightly job on pve-prod-hv01" cannot be marked verified until that runbook closes.
+- Target: VM-level backup via PBS (nightly), RPO 24 h / RTO 4 h
 - qemu-guest-agent installed for fs-consistent snapshots
 - Nightly application-level Qdrant snapshot (cron, 03:30 UTC)
 

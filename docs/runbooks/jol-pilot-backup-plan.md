@@ -24,6 +24,14 @@
 - **All times UTC** (fleet convention; SOC 2 evidence consistency). Jobs
   are staggered away from the existing hv01 02:00 window so the single
   PBS/P4500 target is not contended.
+- **Client-side encryption is the fleet pattern, but it is only *proven* on
+  llm-prod-lt01.** pve-prod-hv01 was previously cited here as verified — it is
+  not: as of 2026-10-21 it has no PBS datastore registered and no valid backup
+  job (see `docs/compliance/evidence/hv01-storage-inspection-20261021.txt`).
+  prox01 must be verified the same way before its jobs are trusted:
+  `pvesm status | grep -w pbs01` **and** `pvesh get /cluster/backup` both have to
+  return the expected entries — an entry present in `jobs.cfg` but absent from the
+  API means the job never runs.
 
 ### Per-VM schedule
 
@@ -154,3 +162,4 @@ control).
 |------|--------|----------|
 | 2026-08-23 | Backup/DR plan created (Step 4, DRAFT) — activates at VM provisioning | this document |
 | 2026-08-23 | Ratified-spec reconciliation: Priority column added; Vaultwarden escrow label `pbs01-pilot-encryption-key`; on-demand prune command noted | Step 4 ratified task spec |
+| 2026-10-21 | §1 corrected: hv01 removed from the "verified client-side encrypted" claim (no PBS datastore there). Added the two-probe verification rule for any hypervisor backup path | `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` |

@@ -17,7 +17,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | Hermes agent orchestration, workflows, automation |
 | **SSH Policy**     | key-only (ENFORCED 2026-09-01) |
-| **Backup Enabled** | yes                                        |
+| **Backup Enabled** | **NO (verified 2026-10-21)** — host pve-prod-hv01 has no PBS datastore and no valid backup job; VMID 102 has never been dumped |
 | **Monitoring**     | yes (node-exporter 1.7.0, active 2026-09-01) |
 | **VMID**           | 102                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -66,7 +66,12 @@ All data residency confined to EU/EEA (GDPR Art.25).
 
 ## Backup Policy
 
-- VM-level backup via PBS (nightly)
+- ⚠ NOT IN FORCE (verified 2026-10-21): no backup of VMID 102 exists. The hypervisor
+  claim below was never true (`pvesh get /cluster/backup` → `[]`, no PBS datastore on
+  pve-prod-hv01). Impact is bounded: this VM is a definition-only host with no
+  runtime state (C1 resolved 2026-09-19), so rebuild from `jol-hermes-agents` is the
+  documented recovery. Procedure to close: `docs/runbooks/hv01-storage-backup-reconfiguration.md`.
+- Target: VM-level backup via PBS (nightly)
 - RPO: 24 h | RTO: 4 h
 
 ## Monitoring Expectations
