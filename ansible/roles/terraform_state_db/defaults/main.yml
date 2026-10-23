@@ -1,0 +1,49 @@
+# =============================================================================
+# role: terraform_state_db — defaults
+# Dedicated PostgreSQL instance that hosts the Terraform `pg` state backend.
+# One host: tfstate-prod-01 (VMID 205, 10.60.60.32, VLAN 60, prox01).
+#
+# Design (ratified 2026-09-25, change record JOL-TFRUNNER-20260925-01):
+#   - Postgres `pg` backend with native advisory-lock state locking.
+#   - MinIO was rejected: no working lock on Terraform 1.9.x (needs >=1.10
+#     `use_lockfile` + conditional writes) and MinIO OSS archived 2026-04-25.
+#   - TLS in transit (self-signed baseline; verify-full needs the fleet CA).
+#   - ZFS-native-encrypted dataset at rest (operator gate — prox01 host action).
+#   - PBS VM backup + nightly pg_dump logical backup (belt + braces).
+# =============================================================================
+---
+# --- Postgres package ---
+postgres_version: "16"
+postgres_conf_dir: "/etc/postgresql/{{ postgres_version }}/main"
+postgres_data_dir: "/var/lib/postgresql/{{ postgres_version }}/main"
+
+# --- Network ---
+# listen_addresses must include the host's own IP so the runner can reach it;
+# UFW restricts inbound 5432 to the runner only (see tasks/40_firewall.yml).
+terraform_state_db_bind_address: "10.60.60.32"
+terraform_state_db_port: 5432
+terraform_state_db_allowed_sources:
+  - "10.60.60.31/32"   # tf-runner-prod-01
+
+# --- State database + role ---
+terraform_state_db_name: "terraform_state"
+terraform_state_db_user: "tfstate"
+terraform_state_db_schema: "terraform_remote_state"
+# Password is injected at deploy time from Vaultwarden — NEVER committed (§0.1).
+# Empty default forces the operator to supply it; the role asserts non-empty.
+terraform_state_db_password: ""
+
+# --- TLS (self-signed baseline) ---
+# sslmode=require encrypts; verify-full needs the fleet CA — tracked as a
+# hardening TODO once the internal CA is provisioned.
+terraform_state_db_tls_dir: "/etc/ssl/tfstate"
+terraform_state_db_tls_cn: "tfstate-prod-01.jol.internal"
+terraform_state_db_tls_days: 825
+
+# --- Backup (logical, nightly) ---
+terraform_state_db_backup_dir: "/var/backups/tfstate"
+terraform_state_db_backup_schedule: "30 2 * * *"
+terraform_state_db_backup_retention_days: 14
+
+# --- auditd ---
+terraform_state_db_audit_key: "jol_secrets"

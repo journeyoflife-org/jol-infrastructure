@@ -1,0 +1,14 @@
+# =============================================================================
+# pg_hba.conf — hardened (first-match, minimal set)
+# Managed by the terraform_state_db Ansible role; do not edit by hand.
+#
+# Policy:
+#   - local peer for the postgres superuser (admin via sudo -u postgres psql)
+#   - hostssl from the runner IP only, scram-sha-256, to the state DB + role
+#   - reject everything else (IPv4 + IPv6)
+# =============================================================================
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+local   all             postgres                                peer
+hostssl {{ terraform_state_db_name }} {{ terraform_state_db_user }} {% for src in terraform_state_db_allowed_sources %}{{ src }}{% if not loop.last %} {% endif %}{% endfor %} scram-sha-256
+host    all             all             0.0.0.0/0               reject
+host    all             all             ::/0                    reject

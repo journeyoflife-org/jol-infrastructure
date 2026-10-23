@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# =============================================================================
+# run-ephemeral.sh — ephemeral GitHub Actions runner (one job per process).
+# Managed by the terraform_runner Ansible role; do not edit by hand.
+#
+# Mints a Just-In-Time runner config via the GitHub API using a short-lived
+# token injected at runtime (secrets EnvironmentFile). The token is NEVER stored
+# in git or baked into the image (AGENTS.md §0.1). systemd Restart=always re-runs
+# this wrapper after each job, producing a fresh, single-use runner.
+# =============================================================================
+set -euo pipefail
+
+RUNNER_HOME="{{ terraform_runner_home }}"
+GH_API="{{ actions_runner_api }}"
+ORG="{{ actions_runner_org }}"
+GROUP_ID="{{ actions_runner_group_id }}"
+WORK_FOLDER="{{ actions_runner_work_folder }}"
+NAME="{{ actions_runner_name_prefix }}-$$-$(date +%s)"
+LABELS_JSON='[{% for label in actions_runner_labels %}{"name":"{{ label }}"}{% if not loop.last %},{% endif %}{% endfor %}]'
+
+cd "${RUNNER_HOME}"
+
+: "${GH_JIT_TOKEN:?GH_JIT_TOKEN not set — inject from Vaultwarden into {{ terraform_secrets_dir }}/runner.secrets.env (0400 root:root)}"
+
+JIT_JSON="$(curl -sfL -X POST \
+  -H "Authorization: Bearer ${GH_JIT_TOKEN}" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "${GH_API}/orgs/${ORG}/actions/runners/generate-jitconfig" \
+  -d "{\"name\":\"${NAME}\",\"runner_group_id\":${GROUP_ID},\"work_folder\":\"${WORK_FOLDER}\",\"labels\":${LABELS_JSON}}")"
+
+ENCODED="$(printf '%s' "${JIT_JSON}" | jq -r '.encoded_jit_config')"
+if [ -z "${ENCODED}" ] || [ "${ENCODED}" = "null" ]; then
+  echo "ERROR: empty JIT config returned by GitHub API" >&2
+  exit 1
+fi
+
+./config.sh --jitconfig "${ENCODED}"
+exec ./run.sh --ephemeral

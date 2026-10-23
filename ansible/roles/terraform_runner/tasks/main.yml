@@ -1,0 +1,32 @@
+# =============================================================================
+# role: terraform_runner — task index (executed in order)
+# =============================================================================
+---
+- name: Service account (unprivileged, no sudo, no SSH login)
+  ansible.builtin.import_tasks: 00_user.yml
+  tags: [terraform_runner, user]
+
+- name: Install Terraform (SHA256-pinned)
+  ansible.builtin.import_tasks: 10_terraform.yml
+  tags: [terraform_runner, terraform]
+
+- name: Terraform CLI config (.terraformrc — plugin cache, no checkpoint)
+  ansible.builtin.import_tasks: 20_cli_config.yml
+  tags: [terraform_runner, terraform]
+
+- name: Install SOPS (SHA256-pinned)
+  ansible.builtin.import_tasks: 30_sops.yml
+  tags: [terraform_runner, sops]
+
+- name: Secure directory layout
+  ansible.builtin.import_tasks: 40_layout.yml
+  tags: [terraform_runner, layout]
+
+- name: GitHub Actions self-hosted runner
+  ansible.builtin.import_tasks: 50_actions_runner.yml
+  tags: [terraform_runner, runner]
+  when: actions_runner_enabled | default(true) | bool
+
+- name: auditd watches on secret + state material
+  ansible.builtin.import_tasks: 60_auditd.yml
+  tags: [terraform_runner, audit]

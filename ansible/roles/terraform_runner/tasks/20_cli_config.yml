@@ -1,0 +1,14 @@
+# =============================================================================
+# 20_cli_config.yml — Terraform CLI configuration file (.terraformrc)
+# Plugin cache = consistency (pinned providers reused, fewer network fetches);
+# checkpoint disabled = no telemetry egress. Referenced via TF_CLI_CONFIG_FILE
+# in runner.env so it applies to the runner service user.
+# =============================================================================
+---
+- name: Deploy Terraform CLI config
+  ansible.builtin.template:
+    src: terraformrc.j2
+    dest: "{{ terraform_cli_config_file }}"
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    mode: "0640"

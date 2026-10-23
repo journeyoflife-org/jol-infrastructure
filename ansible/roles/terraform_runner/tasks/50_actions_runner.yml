@@ -1,0 +1,105 @@
+# =============================================================================
+# 50_actions_runner.yml — install the GitHub Actions self-hosted runner
+# Modes:
+#   ephemeral (default, ratified) — one job per process, JIT-registered via a
+#     short-lived token injected at runtime. No persistent registration.
+#   service — persistent registration via a one-time registration token.
+# The runner tarball is SHA256-verified (supply-chain integrity, SOC 2 CC8.1).
+# Secrets (JIT/registration token) are NEVER written by this role (§0.1).
+# =============================================================================
+---
+- name: Assert a registration token is supplied for service mode
+  ansible.builtin.assert:
+    that:
+      - actions_runner_registration_token | length > 0
+    fail_msg: >-
+      actions_runner_mode=service requires actions_runner_registration_token,
+      supplied at deploy time from Vaultwarden (never committed). Prefer
+      actions_runner_mode=ephemeral (JIT) which needs no persistent token.
+  when: actions_runner_mode == "service"
+
+- name: Download Actions runner release (SHA-256 verified)
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/actions/runner/releases/download/v{{ actions_runner_version }}/
+      actions-runner-linux-x64-{{ actions_runner_version }}.tar.gz
+    dest: /tmp/actions-runner.tar.gz
+    checksum: "sha256:{{ actions_runner_sha256 }}"
+    mode: "0644"
+
+- name: Extract Actions runner into the runner home (runner-owned)
+  ansible.builtin.unarchive:
+    src: /tmp/actions-runner.tar.gz
+    dest: "{{ terraform_runner_home }}"
+    remote_src: true
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    creates: "{{ terraform_runner_home }}/run.sh"
+
+- name: Deploy runner environment file (non-secret only)
+  ansible.builtin.template:
+    src: runner.env.j2
+    dest: "{{ terraform_runner_home }}/runner.env"
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    mode: "0640"
+  notify: tf_runner restart runner
+
+- name: Deploy ephemeral JIT runner wrapper
+  ansible.builtin.template:
+    src: run-ephemeral.sh.j2
+    dest: "{{ terraform_runner_home }}/run-ephemeral.sh"
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    mode: "0750"
+  when: actions_runner_mode == "ephemeral"
+
+- name: Register persistent runner (service mode only)
+  ansible.builtin.command:
+    cmd: >-
+      ./config.sh --unattended
+      --url https://github.com/{{ actions_runner_org }}
+      --token {{ actions_runner_registration_token }}
+      --name {{ actions_runner_name_prefix }}
+      --labels {{ actions_runner_labels | join(',') }}
+      --work {{ actions_runner_work_folder }}
+    chdir: "{{ terraform_runner_home }}"
+    creates: "{{ terraform_runner_home }}/.runner"
+  become: true
+  become_user: "{{ terraform_runner_user }}"
+  no_log: true
+  when: actions_runner_mode == "service"
+
+- name: Deploy hardened runner systemd unit
+  ansible.builtin.template:
+    src: terraform-runner.service.j2
+    dest: /etc/systemd/system/terraform-runner.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - tf_runner reload systemd
+    - tf_runner restart runner
+
+- name: Enable and start the runner service
+  ansible.builtin.systemd_service:
+    name: terraform-runner
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Remove runner download artifact
+  ansible.builtin.file:
+    path: /tmp/actions-runner.tar.gz
+    state: absent
+
+- name: Report runtime-secret requirement (audit trail)
+  ansible.builtin.debug:
+    msg: >-
+      Runner installed in {{ actions_runner_mode }} mode. Before it can pick up
+      jobs the operator must create {{ terraform_secrets_dir }}/runner.secrets.env
+      (0400 root:root) from Vaultwarden containing
+      {{ 'GH_JIT_TOKEN (ephemeral)' if actions_runner_mode == 'ephemeral'
+         else 'registration handled at config time (service)' }}, plus PM_API_TOKEN
+      and the SOPS age key at {{ terraform_secrets_dir }}/age.key. This role never
+      writes those files. Record the injection in CHANGELOG.md.

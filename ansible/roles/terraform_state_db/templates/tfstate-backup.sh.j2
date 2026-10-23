@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# =============================================================================
+# tfstate-backup.sh — nightly pg_dump of the Terraform state DB
+# Managed by the terraform_state_db Ansible role; do not edit by hand.
+# Runs as the postgres user via cron.
+# =============================================================================
+set -euo pipefail
+
+BACKUP_DIR="{{ terraform_state_db_backup_dir }}"
+DB="{{ terraform_state_db_name }}"
+RETENTION_DAYS="{{ terraform_state_db_backup_retention_days }}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+DEST="${BACKUP_DIR}/${DB}-${STAMP}.dump"
+
+pg_dump -Fc "${DB}" > "${DEST}"
+chmod 0600 "${DEST}"
+
+find "${BACKUP_DIR}" -type f -name "${DB}-*.dump" -mtime +"${RETENTION_DAYS}" -delete
+
+echo "$(date -Is) backup=${DEST} size=$(stat -c %s "${DEST}") retention=${RETENTION_DAYS}d"

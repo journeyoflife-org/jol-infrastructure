@@ -1,0 +1,35 @@
+# =============================================================================
+# 30_sops.yml — install SOPS (SHA256-pinned) for at-rest secret decryption
+# The age PRIVATE key is NOT provisioned here — it is injected at runtime from
+# Vaultwarden into {{ terraform_secrets_dir }}/age.key (0400). SOPS reads it via
+# SOPS_AGE_KEY_FILE at apply time (AGENTS.md §0.1 — no secrets in git).
+# =============================================================================
+---
+- name: Download SOPS release (SHA-256 verified)
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/getsops/sops/releases/download/v{{ sops_version }}/
+      sops-v{{ sops_version }}.linux.amd64
+    dest: /tmp/sops
+    checksum: "sha256:{{ sops_sha256 }}"
+    mode: "0755"
+
+- name: Install SOPS binary
+  ansible.builtin.copy:
+    src: /tmp/sops
+    dest: /usr/local/bin/sops
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+
+- name: Verify installed SOPS version matches pin (drift guard)
+  ansible.builtin.command: /usr/local/bin/sops --version
+  register: sops_version_check
+  changed_when: false
+  failed_when: "sops_version not in sops_version_check.stdout"
+
+- name: Remove SOPS download artifact
+  ansible.builtin.file:
+    path: /tmp/sops
+    state: absent

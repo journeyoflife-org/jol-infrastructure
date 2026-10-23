@@ -1,0 +1,19 @@
+# =============================================================================
+# role: terraform_runner — handlers
+# Names are prefixed to avoid collision with the `monitoring` role handlers when
+# both roles run in the same play (handler names are play-global).
+# =============================================================================
+---
+- name: tf_runner reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: tf_runner restart runner
+  ansible.builtin.systemd_service:
+    name: terraform-runner
+    state: restarted
+  when: actions_runner_enabled | default(true) | bool
+
+- name: tf_runner reload auditd
+  ansible.builtin.command: augenrules --load
+  changed_when: true

@@ -1,0 +1,31 @@
+# =============================================================================
+# role: terraform_state_db — task index (executed in order)
+# =============================================================================
+---
+- name: Install PostgreSQL packages
+  ansible.builtin.import_tasks: 00_postgres.yml
+  tags: [terraform_state_db, postgres]
+
+- name: Provision TLS certificate (self-signed baseline)
+  ansible.builtin.import_tasks: 10_tls.yml
+  tags: [terraform_state_db, tls]
+
+- name: Create state database + least-privilege role
+  ansible.builtin.import_tasks: 20_database.yml
+  tags: [terraform_state_db, database]
+
+- name: Deploy postgresql.conf drop-in + pg_hba.conf (hardened)
+  ansible.builtin.import_tasks: 30_config.yml
+  tags: [terraform_state_db, config]
+
+- name: UFW allow 5432/tcp from the runner only
+  ansible.builtin.import_tasks: 40_firewall.yml
+  tags: [terraform_state_db, firewall]
+
+- name: Nightly pg_dump logical backup
+  ansible.builtin.import_tasks: 50_backup.yml
+  tags: [terraform_state_db, backup]
+
+- name: auditd watches on Postgres config + TLS material
+  ansible.builtin.import_tasks: 60_auditd.yml
+  tags: [terraform_state_db, audit]

@@ -1,0 +1,32 @@
+# =============================================================================
+# 50_backup.yml — nightly pg_dump logical backup (belt + braces with PBS VM)
+# PBS covers the whole VM (RPO 24h); pg_dump gives a logical, portable
+# recovery path that survives cross-version restores.
+# =============================================================================
+---
+- name: Create backup directory (postgres-owned, 0700)
+  ansible.builtin.file:
+    path: "{{ terraform_state_db_backup_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+
+- name: Deploy pg_dump backup script
+  ansible.builtin.template:
+    src: tfstate-backup.sh.j2
+    dest: /usr/local/bin/tfstate-backup.sh
+    owner: root
+    group: postgres
+    mode: "0750"
+
+- name: Schedule nightly pg_dump cron (as postgres user)
+  ansible.builtin.cron:
+    name: "tfstate nightly pg_dump"
+    user: postgres
+    job: "/usr/local/bin/tfstate-backup.sh > /var/log/tfstate-backup.log 2>&1"
+    minute: "{{ terraform_state_db_backup_schedule.split(' ')[0] }}"
+    hour: "{{ terraform_state_db_backup_schedule.split(' ')[1] }}"
+    day: "{{ terraform_state_db_backup_schedule.split(' ')[2] }}"
+    month: "{{ terraform_state_db_backup_schedule.split(' ')[3] }}"
+    weekday: "{{ terraform_state_db_backup_schedule.split(' ')[4] }}"

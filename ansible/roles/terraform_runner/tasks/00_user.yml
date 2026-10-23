@@ -1,0 +1,26 @@
+# =============================================================================
+# 00_user.yml — unprivileged runner service account
+# Least privilege (SOC 2 CC6.1): no sudo, no interactive SSH login, dedicated
+# home that owns the terraform work/state/secrets tree and the Actions runner.
+# =============================================================================
+---
+- name: Create terraform runner group
+  ansible.builtin.group:
+    name: "{{ terraform_runner_group }}"
+    system: true
+    state: present
+
+- name: Create terraform runner service account (no sudo)
+  ansible.builtin.user:
+    name: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    system: true
+    home: "{{ terraform_runner_home }}"
+    create_home: true
+    # Runner is launched by systemd, not by an interactive login; /bin/bash is
+    # required because the Actions runner shell-steps execute bash.
+    shell: /bin/bash
+    # Deny password + interactive SSH access to the service account.
+    password: "!"
+    password_lock: true
+    state: present

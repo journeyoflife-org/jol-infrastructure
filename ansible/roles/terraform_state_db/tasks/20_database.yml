@@ -1,0 +1,45 @@
+# =============================================================================
+# 20_database.yml — create the state DB + least-privilege role
+# The `tfstate` role owns the dedicated DB (no superuser, no create-db/role).
+# The pg backend uses this role for all operations; advisory-lock locking is
+# automatic. Password is runtime-injected from Vaultwarden — NEVER committed.
+# =============================================================================
+---
+- name: Assert a password was supplied for the tfstate role
+  ansible.builtin.assert:
+    that:
+      - terraform_state_db_password | length > 0
+    fail_msg: >-
+      terraform_state_db_password must be supplied at deploy time from
+      Vaultwarden (AGENTS.md §0.1 — never committed). Pass via
+      `--extra-vars` or an encrypted variable file.
+
+- name: Create least-privilege tfstate role (login, no superuser, no create)
+  community.postgresql.postgresql_user:
+    db: "{{ terraform_state_db_name }}"
+    name: "{{ terraform_state_db_user }}"
+    password: "{{ terraform_state_db_password }}"
+    role_attr_flags: NOSUPERUSER,NOCREATEDB,NOCREATEROLE
+    login: true
+    encrypted: true
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: Create the terraform_state database (owner=tfstate)
+  community.postgresql.postgresql_db:
+    name: "{{ terraform_state_db_name }}"
+    owner: "{{ terraform_state_db_user }}"
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Report database creation (audit trail — no secrets in output)
+  ansible.builtin.debug:
+    msg: >-
+      Database {{ terraform_state_db_name }} created, owned by
+      {{ terraform_state_db_user }}. The pg backend will auto-create the
+      schema `{{ terraform_state_db_schema }}` and table `states` on first
+      `terraform init`. Locking: native Postgres advisory locks (auto-release
+      on session abort — ideal for the ephemeral runner).

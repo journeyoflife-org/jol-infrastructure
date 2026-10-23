@@ -1,0 +1,25 @@
+# =============================================================================
+# 30_config.yml — postgresql.conf drop-in + hardened pg_hba.conf
+# Drop-in at conf.d/jol-tfstate.conf (Ubuntu/PG 16 includes conf.d by default).
+# pg_hba.conf is templated wholesale (first-match semantics; minimal hardened
+# set: local peer for postgres admin + hostssl from the runner only + reject-all).
+# =============================================================================
+---
+- name: Deploy postgresql.conf drop-in (listen, TLS, scram, audit logging)
+  ansible.builtin.template:
+    src: postgresql-jol-tfstate.conf.j2
+    dest: "{{ postgres_conf_dir }}/conf.d/jol-tfstate.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: tfstate restart postgresql
+
+- name: Deploy hardened pg_hba.conf (replace distro default)
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgres_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+    validate: /usr/lib/postgresql/{{ postgres_version }}/bin/pg_hba_check -f %s
+  notify: tfstate restart postgresql

@@ -1,0 +1,53 @@
+# =============================================================================
+# Host variables — tfstate-prod-01 (VM 205, 10.60.60.32)
+# Dedicated PostgreSQL for the Terraform `pg` state backend.
+# Runs on prox01 (VLAN 60, management). NOTE: secrets NEVER live here —
+# runtime-injected from Vaultwarden only (AGENTS.md §0.1).
+# =============================================================================
+
+# --- Audit watches (host-specific secret material) ---
+# The tfstate role password is injected at deploy time; it is NOT persisted
+# on this host beyond the postgres catalog (scram hash).
+jol_audit_secret_files: []
+
+# --- Application layout ---
+jol_repos_root: /opt/jol/repos
+jol_secrets_dir: /opt/jol/repos/secrets
+jol_app_state_dir: /var/lib/postgresql
+jol_app_log_dir: /var/log/postgresql
+
+# No reference repo clones managed by the common role on this host.
+common_repo_clones: []
+
+# --- Service accounts ---
+# The postgres user is created by the distro package; no extra service users.
+jol_service_users: []
+
+# --- Firewall (UFW) — sources restricted per trust boundary ---
+# SSH + node-exporter from the management VLAN; 5432 from the runner only
+# (the terraform_state_db role adds the 5432 rule).
+ufw_ssh_allowed_sources:
+  - 10.60.60.0/24
+ufw_mgmt_allow_sources:
+  - 10.60.60.0/24
+ufw_http_allowed_sources: []
+ufw_monitoring_allowed_sources:
+  - 10.60.60.0/24
+
+# No Docker on this host — DOCKER-USER chain guard not applicable.
+docker_guard_enabled: false
+
+# --- Monitoring agent ---
+node_exporter_bind_address: "10.60.60.32"
+
+# --- Log shipping (Promtail -> Loki) ---
+promtail_enabled: false
+loki_push_url: "http://loki.monitoring.jol.internal:3100/loki/api/v1/push"
+promtail_log_paths:
+  - /var/log/postgresql/*.log
+
+# --- Backup ---
+# VM-level backups via PBS/prox01; qemu-guest-agent enables fs-consistent
+# snapshots. Nightly pg_dump logical backup is managed by the
+# terraform_state_db role.
+backup_enabled: true

@@ -1,0 +1,46 @@
+# =============================================================================
+# provision-terraform-runner.yml
+# Provisions the hardened self-hosted Terraform / GitHub Actions runner VM
+# (tf-runner-prod-01) on prox01, VLAN 60 (management).
+#
+# Sequence:
+#   1. Operator creates VM 206 on prox01 from the Ubuntu 24.04 cloud-init
+#      template, attaching ansible/roles/terraform_runner/files/
+#      cloud-init-userdata.yaml (base OS bootstrap).
+#   2. Run this playbook to harden + install the pinned toolchain + runner.
+#   3. Operator injects runtime secrets from Vaultwarden (see role README).
+#
+# Usage:
+#   cd ansible/
+#   ansible-playbook playbooks/provision-terraform-runner.yml
+#
+# SOC 2 CC8.1 — changes must be reviewed and merged before execution.
+# =============================================================================
+---
+- name: Provision hardened Terraform self-hosted runner (church tree)
+  hosts: tf_runner
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common
+      tags: [common, baseline]
+
+    - role: time_sync
+      tags: [time_sync, baseline]
+
+    - role: ssh
+      tags: [ssh, hardening]
+
+    - role: base_firewall
+      tags: [firewall, hardening]
+
+    - role: monitoring
+      tags: [monitoring, observability]
+
+    - role: backup_client
+      tags: [backup, compliance]
+      when: backup_client_enabled | default(true) | bool
+
+    - role: terraform_runner
+      tags: [terraform_runner]
