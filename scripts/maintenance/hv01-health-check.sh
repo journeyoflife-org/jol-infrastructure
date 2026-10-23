@@ -261,7 +261,36 @@ while read -r sname sstatus; do
     esac
 done < <(pvesm status 2>/dev/null | awk 'NR>1 {print $1, $3}')
 
+# --- 13. Alert transport liveness (monitor the monitor) --------------------
+# Proven 2026-10-23T19:43Z by injecting through the real path: the local hop is
+# `status=sent (delivered to command: /usr/libexec/proxmox-mail-forward)` and the
+# outward hop BOUNCES — gmail MX answers `550-5.7.1 [62.212.207.81] The IP you're
+# using to send mail is not authorized` — then postfix discards the message. So
+# every `mailnotification failure` / `backup-failed` event reaches nobody, and the
+# watchdog itself has no escalation path.
+# ⚠ An empty `mailq` is NOT evidence of a working transport: the queue drained
+#     precisely because the messages bounced (measured: queue empty, 84 bounce/
+#     defer lines in 24 h). Only the delivery record distinguishes the two, which
+#     is why this gate counts outcomes rather than queue depth.
+if have journalctl; then
+    TRANSPORT_COUNTS="$(journalctl -u postfix --since "-24 hours" --no-pager 2>/dev/null | grep -cE 'status=(bounced|deferred)' || true)"
+    if [[ -z "$TRANSPORT_COUNTS" ]]; then
+        alert "cannot read the postfix journal — alert transport is UNVERIFIED (not assumed working)"
+    elif (( TRANSPORT_COUNTS > 0 )); then
+        alert "ALERT TRANSPORT BROKEN: ${TRANSPORT_COUNTS} message(s) bounced/deferred in the last 24 h — failure notifications are NOT reaching anybody (runbook §7.2)"
+    else
+        info "Alert transport: no bounced/deferred mail in the last 24 h"
+    fi
+else
+    probe_missing journalctl 13
+fi
+
 info "=== HEALTH CHECK COMPLETE (alerts=${ALERTS}) ==="
+# STDOUT completion marker — required by the workstation pull (runbook §7.2, layer 3).
+# `info` writes to the log file ONLY, so a remote caller could not tell "every gate
+# ran, nothing to report" from "the script died halfway" — the same blind-spot class
+# as gate 10's dead branch, so both directions must stay provable.
+printf '[%s] === HEALTH CHECK COMPLETE (alerts=%s) ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$ALERTS"
 
 # Rotate: keep 90 days of logs on-host and (when mounted) on the HDD
 find "$LOG_DIR" -name '*-health.log' -mtime +90 -delete 2>/dev/null || true

@@ -400,6 +400,10 @@ snapshot of VMID 100 exists **and** its restore drill passed.
                           "550-5.7.1 [62.212.207.81] The IP … is not authorized". So backup-failure
                           notifications reach nobody. FALSIFIES the 2026-10-21 ":25 blocked" note (port 25
                           works; sender authorisation fails). Fix plan + channel options: §7.2. Evidence §21b.
+                          **This gap is now SELF-DETECTING (2026-10-23):** hv01 watchdog gate 13 counts
+                          bounced/deferred deliveries and fires `rc=1` while the transport stays dead, and the
+                          workstation pull surfaces it as a desktop alert. The gate is still ✘ until a push
+                          channel with a credential exists — detection ≠ delivery.
 □ Negative encryption     restore without key file → FAILS (proves client-side crypto)
 ✔ Restore drill       qmrestore pbs01:backup/vm/102/2026-10-22T20:42:23Z 199 --storage local-lvm
                           --unique 1 → task OK (50 GiB in 9.44 s @5.4 GB/s, decrypted with the stored
@@ -429,13 +433,19 @@ snapshot of VMID 100 exists **and** its restore drill passed.
 ✘ Garbage collection   `garbage-collection list` → schedule/next-run/last-run-state ALL EMPTY,
                           pending-bytes 0 B today only because nothing has been pruned yet.
                           **HIGH: orphaned chunks are never reclaimed ⇒ the pool fills silently.**
-                          Fix (needs its own change window): `proxmox-backup-manager garbage-collection
-                          create pbs-store --schedule "sun 04:30"` AFTER the first prune leaves garbage,
-                          then confirm `pending-bytes` drops to 0 on the next GC.
+                          Fix (needs its own change window): GC is a DATASTORE PROPERTY in PBS 4.2 —
+                          `proxmox-backup-manager datastore update pbs-store --gc-schedule "sat 04:30"`
+                          (there is **no** `garbage-collection create` verb; the earlier text in this gate
+                          named a command that does not exist and cannot work — corrected, §7.1). Detection
+                          is live now: the pbs01 watchdog prints a `WARN: garbage collection is NOT scheduled`
+                          line on every run. Apply after the first prune leaves garbage, then confirm
+                          `pending-bytes` drops to 0 on the next GC.
 ✔ Integrity verify     `pbs-store-verify` already exists (`*-*-01 04:00:00`, outdated-after 30,
                           ignore-verified 1) — monthly. Raised as a FREQUENCY gap, not a missing job.
 ✘ Off-site copy        `remote list` and `sync-job list` → none. 0 off-site copies (3-2-1 unmet).
-□ Usage headroom       `df -h /backup-pool` → 69 G / 2.2 T = 4 % (gate: < 80 %) — PASS, but see GC above
+□ Usage headroom       `df -h /backup-pool` → 69 G / 2.2 T = 4 % (gate: < 80 %) — PASS, but see GC above.
+                          Now covered continuously by pbs01 watchdog gate 2 (> 70 % CRITICAL) + gate 3
+                          (GC pending-bytes > 50 GiB CRITICAL).
 ✔ Admin path durable:   pbs01 administration is reachable over SSH from the operator workstation
                           (ADR-008 Option B executed 2026-10-22: `tcp dport 22 ip saddr 192.168.88.249/32`
                           on pbs01 — a single /32, no segment, no router change; the UI tunnel and the
@@ -486,8 +496,11 @@ the monthly verify path (`*-*-01 04:00:00`), and outside the 02:00 vzdump and 03
 **Risk**: GC is I/O- and CPU-bound while reading the whole chunk index; at 69 G used it is trivial today,
 and the pool is on NVMe. Do not run it concurrently with verify; if the datastore were ever on a removable
 mount, `--gc-on-unmount` matters too (not applicable: `/backup-pool` is a fixed ZFS mount).
-**Gate to add to `jol-health-check.sh`** (monitor-the-monitor, because PBS gives us no capacity knob here):
-alert when `garbage-collection status` `pending-bytes` > 50 G **or** `df /backup-pool` used > 70 %.
+**Capacity gates — SHIPPED 2026-10-23** in the pbs01 watchdog (`scripts/maintenance/pbs01-health-check.sh`,
+gates 2 + 3): `df /backup-pool/pbs-store` > `POOL_ALERT_PCT` (70) is CRITICAL, GC `pending-bytes` >
+`GC_PENDING_ALERT_G` (50 GiB) is CRITICAL, and an unscheduled GC is a WARN. PBS gives us no datastore
+capacity knob in 4.2 (`--max-used-percent` / `--behavior-on-used-full` are not accepted), so the watchdog is
+the only place this can be enforced.
 
 ### 7.2 Repair the failure-alert transport (HIGH — proven dead, not suspected)
 
@@ -504,23 +517,49 @@ event therefore dies in a bounce that nobody reads. **This also falsifies the 20
 outbound `:25` is blocked** — `:25` reaches Google fine; the failure is sender authorisation, and the
 "9 deferred" queue has since drained into bounces (`mailq` now empty).
 
-Pick ONE (each needs a decision from the operator; I will not invent credentials):
+**Professional opinion (2026-10-23, after the operator asked me to choose and implement):** the target state
+is **Telegram** (`type=telegram`, bot token from @BotFather). Rationale: it needs no IP-reputation
+relationship to repair — Gmail's `550-5.7.1` rejection is permanent for this class of source IP, and an
+SMTP relay only moves the problem onto a provider account that can silently lapse; it is the only channel
+that pushes to a phone the operator carries, which is what an RTO-4 h control actually requires; PVE 9
+supports it natively, so no new collector enters the trust boundary. It costs **one secret that the operator
+must create and must never paste into a chat, ticket or shell history** (§0.1) — so it cannot ship tonight.
+The design was therefore split into three layers that need **zero credentials**; all three are shipped:
 
-1. **SMTP submission relay (recommended)** — `relayhost = [smtp.<provider>:465]` + SASL creds +
-   `smtp_tls_security_level = encrypt`. Provider app password required; enter it in Postfix's own
-   `sasl_passwd` (0600) — **never** in a chat, ticket, or command line (§0.1). Then re-run this proof and
-   require `status=sent` with `relay=…:465`.
-2. **Telegram target** (`type=telegram`, bot token from @BotFather) — one API call, pushes to a phone,
-   no SMTP relationship to fix. `pvesh create /cluster/notifications/targets --type telegram …`.
-3. **Webhook target** to an existing monitor (gotify is already a default endpoint) — good if you stand up
-   a collector later; useless without one.
-4. **Workstation pull-timer (no secrets, immediate)** — a systemd timer on the operator's laptop that runs
-   `jol-health-check.sh` over SSH every hour and raises a desktop notification on non-zero exit. It is a
-   *second* pair of eyes, not a substitute: silent if the laptop is off.
+| Layer | What | Where | Proof |
+|---|---|---|---|
+| 1 | watchdog **gate 13** — alert-transport liveness; counts `status=(bounced\|deferred)` in the postfix journal, never queue depth | `scripts/maintenance/hv01-health-check.sh` → `pve:/usr/local/bin/jol-health-check.sh`, sha `34799462193c…` | fired `rc=1`: `CRITICAL: ALERT TRANSPORT BROKEN: 81 message(s) bounced/deferred in the last 24 h` |
+| 2 | **pbs01 got a watchdog of its own** (10 gates: chrony quorum/offset, pool %, GC, prune+verify existence, per-group freshness parsed from UTC snapshot *names*, ACL drift, auditd local-only, fail2ban, services) | `scripts/maintenance/pbs01-health-check.sh` → `pbs01:/usr/local/bin/jol-pbs01-health-check.sh`, sha `ad056ff3979e…`, cron `15 6 * * *` | normal run `rc=0` + GC `WARN`; forced thresholds → 7 CRITICALs `rc=1`; executed on hv01 → `rc=2` host-guard abort |
+| 3 | **workstation pull** — runs both watchdogs over SSH every 15 min and raises a desktop alert | `scripts/maintenance/fleet-health-pull.sh` + `install-fleet-health-timer.sh` → `~/.local/bin/jol-fleet-health-pull.sh`, sha `2591b5b36fdd…`, `jol-fleet-health.timer` enabled | installer's own proof: service exits `rc=1` while transport is broken; every run logged to `~/.local/share/jol-fleet-health/pull.log` |
 
-**Whatever is chosen, add the liveness gate**: a watchdog check that injects a test message and alerts if
-the transport bounces/defers — otherwise "alerting configured" becomes another claim that quietly rots, exactly
-as `Monitoring: active` did on pbs01.
+Two defects found and fixed *while building layer 3* — either one would have made the new monitoring lie:
+
+1. **Both watchdogs emitted their completion marker only to the log file.** `info()` appends to `$LOG`; only
+   `alert()`/`warn()` tee to stdout — so the pull's gate-coverage check could never find
+   `HEALTH CHECK COMPLETE` and would have raised a permanent false *UNVERIFIED* alert on **both** hosts. Each
+   script now prints an explicit stdout marker. Proved in both directions: markers present on live runs,
+   `ONLY=pbs01` subset run refuses to claim a fleet-wide green.
+2. **An alert without an age is untriageable, and a 15-minute repeat becomes ignorable noise.** The pull now
+   records last-green per host (`last OK: 37 h ago`) and notifies **on change of the alert set only** —
+   digits masked, so `81 message(s)` → `82 message(s)` stays the same failure — and announces recovery when a
+   previously-noted set clears. Proved: first run notifies; immediate re-run logs `same alert set as already
+   notified — desktop notification suppressed`; seeded-recovery run raises
+   `-u normal … JOL fleet health — recovered` and clears the signature file.
+
+**Known limits — do not mistake them for health:**
+- `Linger=no` on the workstation ⇒ the user manager (hence the timer) exists only while the operator is
+  logged in, and nothing fires while the laptop is off. `loginctl enable-linger jol` widens this; layer 3 is
+  a second pair of eyes, never a substitute for a push channel.
+- `systemctl --user is-failed jol-fleet-health.service` is the **expected steady state** while any gate is
+  red: `Type=oneshot` + `rc=1` *is* the alert. Never "fix" it by forcing exit 0 — that is gate 10's dead
+  branch again, in a new costume.
+- pbs01's watchdog writes evidence to `/var/log/jol-pbs01` on the root filesystem only, never into
+  `/backup-pool` (self-referential blindness already fixed on hv01).
+
+**Remaining (needs the operator's token, typed at a prompt — never into chat):** create a Telegram target on
+PVE and match the failure events to it, then mirror the same liveness gate onto pbs01. Exact `pvesh` option
+names for `--type telegram` targets/matchers MUST be read back from the host's own help output before
+executing — I will not guess a schema that touches a credential. ⚠ UNVERIFIED until then.
 
 ## Change History
 
@@ -536,3 +575,4 @@ as `Monitoring: active` did on pbs01.
 | 2026-10-22 | **pbs01 chrony fix audited: necessary and correct, but under-provisioned — and two of my own claims in this runbook were wrong.** (1) The 18:54Z drop-in used `server <pool-zone>`, which pins one resolved address per line: measured `2 sources online` out of 8 DNS candidates, i.e. no quorum to reject a falseticker (RFC 5905 §10). Re-provisioned to `/etc/chrony/conf.d/jol-sources.conf` = `pool lt.pool.ntp.org / 0.ubuntu.pool.ntp.org / 1.ubuntu.pool.ntp.org iburst maxsources 2` (6 sources online, stratum 3, 0.9 ms, no `x`, no journal warning, no clock step, RTC == system time, all services active), validated by `chronyd -Q` before the mutation and with the old file moved to `/root/prechange-20261022/` rather than deleted; the filename now matches `ansible/roles/time_sync` so a future `time_sync` run converges it. (2) Fleet sweep proves the defect was **isolated to pbs01**: hv01 has 12 sources / 22 µs / no `10.10.10.50` reference; Ansible hosts take Ubuntu pools from `group_vars`. (3) **Withdrawn:** "`DatastoreBackup` + `DatastoreAudit` is enough to write but not enough to restore, so the `qmrestore` drill cannot pass" — per the published role definitions `DatastoreBackup` *does* restore owned backups (`Datastore.Backup` implies `Datastore.Read`/`Verify` for owned groups); the privilege the onboarding actually lacks is **`Datastore.Prune`** (`prune-backups` in step 6). Step 4 rewritten with both grant commands and a least-privilege alternative. (4) **Withdrawn:** §3c row 1 ("workstation has no path to VLAN 10 at all") and the §3b row-4 "two layers / nftables is not a valid single-step remedy" statement — ADR-008 measured the opposite and `ssh pbs01` is now the working admin path used for this verification | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §15; `docs/servers/pbs01.md` §Security Controls + Change History |
 | 2026-10-22 (grants) | **PRODUCTION CHANGE on pbs01 (PBS access control): the `jol-hv01` namespace grant is applied, closing blocker (a) of the datastore registration.** `DatastorePowerUser` on `/datastore/pbs-store/jol-hv01` with `propagate=1` granted to `pve-backup@pbs` **and** `pve-backup@pbs!pve-token` (`acl update` rc=0 for both). Verified by read-back rather than by exit code: the token's effective privileges moved from **empty** to `Datastore.Backup (*)` + `Datastore.Prune (*)`, and the rows are in `/etc/proxmox-backup/acl.cfg` (0640 root:backup) so they survive a restart. **Reference check settled a surprise:** `user permissions` on the nightly-working `jol-llm-backup@pbs!llm-token` shows the same two-privilege shape, confirming `DatastorePowerUser` does not list Read/Verify/Audit explicitly — restore of owned groups is implied by `Datastore.Backup`. So the grant is *identical in shape to a control already proven in production*, not a guess. ⚠ **New rollback gap found and filled in §4:** PBS 4.2 `proxmox-backup-manager acl` has **no `delete`** subcommand, so unwinding a grant needs the UI (or `NoAccess`) — §4 had no phase-4 row at all before this. §3b rows 4–5 restate the remaining single blocker: `pbs01.pw` = 1 byte, so the token must be **rotated** (secret typed into the PVE form, never a shell) before `pvesm status` can go `active`. No credentials read or printed in this session | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §16 |
 | 2026-10-21 | Onboarding procedure made host-agnostic after the pbs01-only CLI was pasted into the workstation shell twice (§13): PBS Web UI is now the prescribed path (Permissions and Namespaces views answer the same questions with no CLI), a `[ -x /usr/bin/proxmox-backup-manager ]` guard precedes any CLI form, the ACL option is corrected to `--auth-id`, namespace ACL paths must come from the GUI picker, and a verified self-expiring loopback tunnel via hv01 is documented as the one-off access route (recorded as an access deviation) | `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §12–§13 |
+| 2026-10-23 | **Alerting made self-detecting without any credential (3 layers), and §6/§7.1 corrected again.** Layer 1 = hv01 watchdog gate 13 (postfix `status=(bounced\|deferred)` count, never queue depth) → live `rc=1` "81 message(s) bounced/deferred". Layer 2 = new **pbs01 watchdog** (10 gates) installed `750 root:root` + cron `15 6 * * *`; green `rc=0` + GC WARN, forced thresholds 7 CRITICALs `rc=1`, host guard `rc=2`. Layer 3 = workstation **fleet-health pull** on a 15-min systemd user timer. Two defects caught by testing before deploy: (a) both watchdogs wrote their `HEALTH CHECK COMPLETE` marker to the log file only (`info()` never touched stdout) so the pull's gate-coverage check would have raised a **permanent false UNVERIFIED alert on both hosts**; (b) the pull's `STATE` variable was declared "for silence detection" but never used — it now reports alert age (`last OK: 37 h ago`), notifies only on **change of the alert set** (digits masked) and announces recovery, because 96 identical dialogs a day train the operator to ignore the real one. Also corrected here: §6's GC gate still told the operator to run `garbage-collection create`, **a verb that does not exist in PBS 4.2** (§7.1 had already been corrected the same evening) — GC is a datastore property (`datastore update --gc-schedule`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §22; host shas `34799462193c…` / `ad056ff3979e…` / `2591b5b36fdd…` |

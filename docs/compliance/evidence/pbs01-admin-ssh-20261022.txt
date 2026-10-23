@@ -611,3 +611,73 @@ STILL 401 (expected — the grant was only blocker (a)):
      defence must be a watchdog gate (pending-bytes > 50 G or df used > 70 %), not a PBS setting.
      Rollback if applied: `datastore update pbs-store --delete gc-schedule`.
 === 21 END ===
+
+=== 22. ALERTING SHIPPED WITH ZERO CREDENTIALS — 3 LAYERS, EACH PROVED BOTH WAYS (2026-10-23T20:20Z) ===
+
+22a. WHY THREE LAYERS INSTEAD OF ONE FIX
+     The real fix (§7.2 push channel) needs one secret the operator must create; pasting it into chat is
+     forbidden by §0.1 (this session already has INC-20261022-TOKEN-EXPOSURE for exactly that mistake). So
+     the design was split: everything that needs NO credential shipped now, the credential-dependent half is
+     a one-line change later. Professional opinion recorded in runbook §7.2: Telegram is the target state
+     (no IP-reputation relationship to repair, push to a phone, PVE 9 native — an SMTP relay only moves the
+     problem to a provider account that can lapse silently).
+
+22b. DEPLOYED + BYTE-VERIFIED (repo == host in every case)
+     hv01  pve:/usr/local/bin/jol-health-check.sh          sha256 34799462193c236a…  750 root:root
+     pbs01 pbs01:/usr/local/bin/jol-pbs01-health-check.sh  sha256 ad056ff3979e5aa6…  750 root:root
+           + /etc/cron.d/jol-pbs01-health  (`15 6 * * *`)
+     ws    ~/.local/bin/jol-fleet-health-pull.sh           sha256 2591b5b36fdd0e74…  750 jol:jol
+           + ~/.config/systemd/user/jol-fleet-health.{service,timer}, timer enabled
+     All four scripts: bash -n clean, shellcheck -S warning clean (rc=0).
+
+22c. PROOF MATRIX (a gate that has not fired in both directions is an absent gate)
+     hv01 gate 13          : live rc=1 "ALERT TRANSPORT BROKEN: 81 message(s) bounced/deferred in 24 h"
+     pbs01 watchdog normal : rc=0, 0 CRITICALs, "WARN: garbage collection is NOT scheduled on pbs-store"
+     pbs01 watchdog forced : thresholds overridden -> rc=1 with 7 CRITICALs (pool %, GC pending, 5× STALE)
+     pbs01 host guard      : executed on hv01 -> rc=2 "ABORT: this script must run on pbs01 (this host is
+                             pve-prod-hv01)" — the 280544fa paste-into-wrong-shell class, blocked loudly
+     pull, run 1           : rc=1, desktop notification raised, signature file written
+     pull, run 2 (same set): rc=1, "same alert set as already notified — desktop notification suppressed"
+     pull, recovery        : seeded signature + all-green -> "RECOVERED — alert set … cleared", notify args
+                             captured as `-u normal -t 0 JOL fleet health — recovered …`, file removed
+     pull, subset          : ONLY=pbs01 -> "pbs01 OK — SUBSET ONLY, not a fleet-wide green (ONLY=pbs01)"
+     pull, timer           : systemctl --user start jol-fleet-health.service --wait -> exit non-zero BY
+                             DESIGN (installer prints "OK: service exited non-zero — alert raised as designed")
+     ⚠ The recovery pop-up was proved through an injected stub (fake ssh/notify-send on PATH), not through a
+       genuinely green fleet — impossible while gate 13 is red. Re-verify the recovery leg once transport
+       is fixed; until then it is a code-path proof, not an observed desktop event.
+
+22d. TWO DEFECTS IN MY OWN NEW MONITORING, FOUND BEFORE DEPLOY (both would have made it lie)
+     (1) MARKER NEVER REACHED STDOUT. Both watchdogs emitted "=== … HEALTH CHECK COMPLETE ===" through
+         info(), and info() appends to $LOG only — only alert()/warn() tee to stdout. The pull's
+         gate-coverage check greps stdout for that marker, so it would have raised a PERMANENT false
+         "gate coverage UNVERIFIED" alert on BOTH hosts — the mirror image of gate 10's dead branch: an
+         alert that can never clear teaches the operator to ignore the channel. Fix: each script prints an
+         explicit stdout marker; verified on both hosts over SSH (marker present, rc preserved).
+     (2) DECLARED BEHAVIOUR THAT DID NOT EXIST. The pull's STATE variable was commented "for silence
+         detection" and never read — comment rot promising a control that isn't there. Fix: STATE now drives
+         a real "last OK: Nh ago" on every alert, notification fires only on CHANGE of the alert set (digits
+         masked so "81 message(s)" -> "82 message(s)" is one failure), and recovery clears + announces.
+         Rationale: a 15-min sticky dialog is 96 alerts/day, which trains the operator to ignore the one
+         that matters; an alert with no age cannot be triaged.
+
+22e. HONEST LIMITS OF THIS DESIGN
+     • Linger=no on the workstation ⇒ the user manager (and the timer) exists only during the login
+       session; nothing fires while the laptop is off or logged out. `loginctl enable-linger jol` widens
+       the window; it is NOT a substitute for a push channel and is not presented as one.
+     • `systemctl --user is-failed jol-fleet-health.service` is the EXPECTED steady state while any gate is
+       red (Type=oneshot + rc=1 *is* the alert). Forcing exit 0 to "clean up" the unit state would blind the
+       monitor — same trap class as gate 10 and the 415 false CRITICALs of 2026-07-31.
+     • Detection ≠ delivery. The push transport is still dead: §6 gate "Alert transport" stays ✘.
+     • pbs01 watchdog evidence lands on the root filesystem (/var/log/jol-pbs01, 700 root:root), never in
+       /backup-pool — writing a custodian's proof onto the datastore it monitors is the self-referential
+       blindness already fixed on hv01 (§1b).
+     • GC still unscheduled (§7.1 plan, no mutation); impact starts at the first deleting prune ≈ 2026-10-29.
+
+22f. ALSO CORRECTED (documentation that could not work)
+     §6's GC gate told the operator to run `proxmox-backup-manager garbage-collection create pbs-store
+     --schedule …` — that verb DOES NOT EXIST in PBS 4.2 (verbs: list/start/status). GC is a datastore
+     property: `datastore update pbs-store --gc-schedule "sat 04:30"`, rollback `--delete gc-schedule`.
+     `--max-used-percent` / `--behavior-on-used-full` are likewise not datastore options in 4.2, which is
+     precisely why capacity defence lives in the watchdog (gates 2 + 3) instead of a host setting.
+=== 22 END ===
