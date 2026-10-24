@@ -681,3 +681,74 @@ STILL 401 (expected — the grant was only blocker (a)):
      `--max-used-percent` / `--behavior-on-used-full` are likewise not datastore options in 4.2, which is
      precisely why capacity defence lives in the watchdog (gates 2 + 3) instead of a host setting.
 === 22 END ===
+
+=== 23. DAY-2 SELF-AUDIT: 3 DEFECTS IN MY OWN GATES + 1 WITHDRAWN CONCLUSION (2026-10-24T12:40Z) ===
+
+23a. BACKUP CYCLE — TWO CONSECUTIVE SCHEDULED RUNS, REAL NUMBERS
+     vzdump tasks on hv01 (`/nodes/pve-prod-hv01/tasks --typefilter vzdump`):
+       1792796406 = 2026-10-23T23:00:06Z  OK          <- nightly #2 (02:00 EEST)
+       1792710001 = 2026-10-22T23:00:01Z  OK          <- nightly #1
+       1792701899 / 1792701742            OK          <- manual fulls 2026-10-22 evening
+       1792701640                         job errors  <- MY first vzdump attempt (namespace not found, §17)
+       1786566387 = 2026-08-12T20:26:27Z  OK          <- the manual vma still being retained
+     Snapshots per VMID: 3 dirs (manual + 2 nightlies). ⚠ `ls …/vm/100 | wc -l` returned 4 — each backup-
+     group dir also holds an `owner` entry, so counting snapshots means counting `2*` entries. Pool 71 G /
+     2.2 T (4 %). Evidence push ran again: ns/jol-hv01/host/pve-prod-hv01/2026-10-24T00:45:01Z. pbs01
+     watchdog today: rc=0, 0 CRITICALs, `WARN: garbage collection is NOT scheduled` (still unapplied),
+     fail2ban 0 failed / 0 banned (ADR-008 /32 intact). AGENTS.md §2.1 updated to 2-of-7 consecutive runs.
+
+23b. WITHDRAWN: "the 2026-10-21 note that outbound :25 is blocked is FALSIFIED" (§21b)
+     Measured over 48 h of the postfix journal instead of one sample — TWO defects coexist:
+       (a) `status=deferred (connect to alt2.gmail-smtp-in.l.google.com[173.194.41.27]:25: Connection timed
+           out)` and IPv6 `… [2404:6800:…]:25: Network is unreachable` — ≈104 records in 48 h ⇒ :25 really
+           is partially blocked (the ORIGINAL 2026-10-21 note was right; my falsification was over-inference
+           from a single successful MX connection).
+       (b) the connections that DO complete `status=bounced`: `550-5.7.1 [62.212.207.81] … not authorized`
+           and, today, `550-5.7.26 … sender is unauthenticated … SPF [pve.prod.lt9] with ip: [62.212.195.151]
+           = did not pass`.
+     Method lesson: one delivered handshake proves reachability of ONE MX path, not of the route the next
+     alert will use; and `mailq` empty remains non-evidence. Both defect classes need an authenticated
+     submission relay (or a non-SMTP channel) — which is why gate 13 now demands a positive proof record.
+
+23c. THREE DEFECTS FOUND IN THE GATES I SHIPPED YESTERDAY (all fixed, deployed, re-proved)
+     (1) GATE 10 MASKED FAILURES. `grep -q '"status":"OK"'` over the last 5 tasks passed if ANY task in the
+         window was OK — the live log contains OK and `job errors` INTERLEAVED (23a), so a failed latest
+         backup would have read green. Now: pair starttime+status PER TASK, judge the NEWEST task's status,
+         and additionally alert on any failed vzdump inside the freshness window.
+         Proved: normal run → no gate-10 alert (newest is genuinely OK); `VZDUMP_MAX_AGE_HOURS=72` →
+         `1 vzdump task(s) FAILED within the last 72 h` fires against the real 1792701640 record.
+     (2) LAST JSON ARRAY ELEMENT SILENTLY DROPPED. `… | while read -r obj; do` returns false on a final line
+         without a trailing newline, so the LAST task object was never parsed — found only because I wrote a
+         crafted-payload test (.staging/g10-test.sh, T1 with the newest element last). Fixed with
+         `|| [[ -n "$obj" ]]`; the same guard applied to gate 12's `pvesm status` loop. A partially-read
+         list is worse than an empty one because it looks complete.
+     (3) MULTI-WORD STATUS TRUNCATED. `${NEWEST_LINE##* }` turned `job errors` into `errors`. The verdict
+         stayed correct (anything != OK alerts) but the message lied about the cause. Fixed with awk/sed on
+         the first field only; re-proved: `newest_st=job errors`.
+     Also: gate 13 rebuilt as (a) no bounce/defer AND (b) a positive outward-delivery proof record ≤ 7 d old
+     (absence of failure decays to a false green). New `hv01-verify-alert-transport.sh` →
+     `/usr/local/bin/jol-verify-alert-transport`: reads root@pam's address (prints only `SET (21 chars)`),
+     injects a probe with a unique envelope sender (postfix logs no subjects), follows the queue id to its
+     delivery record, and writes the proof ONLY on an outward `status=sent` — `relay=local` is rejected as
+     non-proof. Today: queue `8E54B321566` → `status=bounced dsn=5.7.26` → rc=1, NO proof written (side
+     effect: one bounced test mail). Branch proofs: absent file → `NEVER VERIFIED`; synthetic fresh file →
+     that alert clears while the bounce alert remains; `TRANSPORT_PROOF_MAX_AGE_DAYS=0` → `proof is STALE`;
+     host guard → rc=2; synthetic file deleted afterwards (never left fake evidence on a host).
+
+23d. HOST PARITY AFTER THE FIXES
+     hv01  /usr/local/bin/jol-health-check.sh         sha256 459de970e312ee25…  750 root:root  == repo
+           /usr/local/bin/jol-verify-alert-transport  sha256 21542834850708fb…  750 root:root  == repo
+     pbs01 /usr/local/bin/jol-pbs01-health-check.sh   sha256 ad056ff3979e5aa6…  750 root:root  == repo (unchanged)
+     ws    ~/.local/bin/jol-fleet-health-pull.sh      sha256 2591b5b36fdd0e74…  (unchanged)
+     All bash -n + shellcheck -S warning clean. The verifier was deployed once while syntactically broken
+     (apostrophe inside a single-quoted string) — lint caught it, redeployed; honest note: install ran BEFORE
+     lint finished, which is the ordering mistake that produced §22's lesson in the first place.
+
+23e. WORKSTATION PULL — MEASURED BEHAVIOUR, NOT CLAIMED
+     14 activations in the last 18 h (not 72): the laptop sleeps, so the real cadence is wake-driven;
+     `Persistent=true` catches up one run per resume. All 14 runs logged; every one suppressed the duplicate
+     notification (alert set unchanged) — dedupe works in production, not just in tests. Bounce count decayed
+     81 → 51 → 17 → 4 across runs, which is exactly the decay that made passive counting insufficient (23c).
+     Cadence verdict: 15 min is unjustified for a 24 h RPO monitor on a sleep-governed laptop; hourly is the
+     honest setting (tracked, not changed here).
+=== 23 END ===

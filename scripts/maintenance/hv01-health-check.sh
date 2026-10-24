@@ -57,6 +57,9 @@ ROOT_ALERT_PCT="${ROOT_ALERT_PCT:-90}"
 NVME_SPARE_MIN="${NVME_SPARE_MIN:-10}"
 CONFIG_TAR_MAX_AGE_DAYS="${CONFIG_TAR_MAX_AGE_DAYS:-8}"
 VZDUMP_MAX_AGE_HOURS="${VZDUMP_MAX_AGE_HOURS:-26}"
+# Gate 13: positive proof of an OUTWARD delivery, written only by jol-verify-alert-transport.
+PROOF_FILE="${PROOF_FILE:-/var/lib/jol-hv01/alert-transport-proof}"
+TRANSPORT_PROOF_MAX_AGE_DAYS="${TRANSPORT_PROOF_MAX_AGE_DAYS:-7}"
 ALERTS=0
 
 mkdir -p "$LOG_DIR"
@@ -213,17 +216,41 @@ if have pvesh; then
     #   work: /nodes/<node>/tasks --typefilter vzdump --limit 5 returns the real tasks.
     #   Rule kept: a query that FAILS is reported as UNVERIFIED, never as a backup finding.
     NODE_NAME="$(hostname)"
-    if LAST_VZDUMP="$(pvesh get "/nodes/${NODE_NAME}/tasks" --typefilter vzdump --limit 5 --output-format json 2>/dev/null)"; then
+    if LAST_VZDUMP="$(pvesh get "/nodes/${NODE_NAME}/tasks" --typefilter vzdump --limit 10 --output-format json 2>/dev/null)"; then
         if [[ -z "$LAST_VZDUMP" || "$LAST_VZDUMP" == "[]" ]]; then
             alert "No vzdump task in ${NODE_NAME}'s task log — no backup has run on this host"
         else
-            info "Recent vzdump tasks: $(printf '%s' "$LAST_VZDUMP" | grep -o '"status":"[^"]*"' | tr '\n' ' ')"
-            if ! printf '%s' "$LAST_VZDUMP" | grep -q '"status":"OK"'; then
-                alert "No OK vzdump among the last tasks — check /var/log/jol-hv01 and the PVE task log"
-            fi
-            # Newest by VALUE, not by returned order (do not rely on the API's sort direction).
-            NEWEST_TS="$(printf '%s' "$LAST_VZDUMP" | grep -o '"starttime":[0-9]*' | cut -d: -f2 | sort -n | tail -1)"
+            # Pair starttime+status PER TASK (objects split on `{`), newest by VALUE — the
+            # API's sort order is not a contract. Proven 2026-10-24 against the live log,
+            # which holds OK and "job errors" INTERLEAVED inside one 5-task window.
+            # ⚠ `|| [[ -n "$obj" ]]` is load-bearing: `read` returns false on a final
+            #   line with no trailing newline, so WITHOUT it the LAST element of the JSON
+            #   array is silently dropped (measured 2026-10-24 in .staging/g10-test.sh —
+            #   T1 lost the newest task entirely). A partially-read list is worse than an
+            #   empty one because it looks complete.
+            TASK_TABLE="$(printf '%s' "$LAST_VZDUMP" | sed 's/},{/}\n{/g' |
+                while read -r obj || [[ -n "$obj" ]]; do
+                    ts="$(printf '%s' "$obj" | grep -o '"starttime":[0-9]*' | cut -d: -f2)"
+                    st="$(printf '%s' "$obj" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)"
+                    [[ -n "$ts" ]] && printf '%s %s\n' "$ts" "${st:-unknown}"
+                done | sort -n)"
+            info "Recent vzdump tasks (ts status): $(printf '%s\n' "$TASK_TABLE" | tr '\n' ' ')"
+            NEWEST_LINE="$(printf '%s\n' "$TASK_TABLE" | tail -1)"
+            # Statuses can contain a space ("job errors") — split on the FIRST field only,
+            # `${LINE##* }` would truncate it to "errors" (caught by .staging/g10-test.sh).
+            NEWEST_TS="$(printf '%s' "$NEWEST_LINE" | awk '{print $1}')"
+            NEWEST_ST="$(printf '%s' "$NEWEST_LINE" | sed 's/^[0-9]* //')"
             NOW="$(date +%s)"
+            # ⚠ FIXED 2026-10-24 — the old test was `grep -q '"status":"OK"'` over the whole
+            #   window: ONE old success masked a NEWER failure, so a failed backup read as
+            #   green. Judge the NEWEST task itself.
+            if [[ "$NEWEST_ST" != "OK" ]]; then
+                alert "Newest vzdump task ($(date -u -d "@$NEWEST_TS" +%FT%TZ)) ended '${NEWEST_ST}' — the LATEST backup did not complete, check the task log"
+            fi
+            FAILS_IN_WINDOW="$(printf '%s\n' "$TASK_TABLE" | awk -v now="$NOW" -v w="$((VZDUMP_MAX_AGE_HOURS * 3600))" '$2 != "OK" && now - $1 <= w' | grep -c . || true)"
+            if [[ "${FAILS_IN_WINDOW:-0}" -gt 0 ]]; then
+                alert "${FAILS_IN_WINDOW} vzdump task(s) FAILED within the last ${VZDUMP_MAX_AGE_HOURS} h (even though a later one may have succeeded) — partial backup loss, check which VMID"
+            fi
             if [[ -n "$NEWEST_TS" ]] && (( NOW - NEWEST_TS > VZDUMP_MAX_AGE_HOURS * 3600 )); then
                 alert "Newest vzdump task is $(( (NOW - NEWEST_TS) / 3600 )) h old (> ${VZDUMP_MAX_AGE_HOURS} h) — nightly backup is not running"
             fi
@@ -254,7 +281,7 @@ fi
 # --- 12. Every declared storage must actually be usable --------------------
 # A defined-but-inactive storage is the failure class that hid for 10 weeks: the
 # config looked configured while nothing worked. pbs01 inactive = no off-host backup.
-while read -r sname sstatus; do
+while read -r sname sstatus || [[ -n "$sname" ]]; do
     case "$sstatus" in
         active|N/A) ;;
         *) alert "storage $sname is declared but status=$sstatus — backups targeting it will fail" ;;
@@ -262,24 +289,35 @@ while read -r sname sstatus; do
 done < <(pvesm status 2>/dev/null | awk 'NR>1 {print $1, $3}')
 
 # --- 13. Alert transport liveness (monitor the monitor) --------------------
-# Proven 2026-10-23T19:43Z by injecting through the real path: the local hop is
-# `status=sent (delivered to command: /usr/libexec/proxmox-mail-forward)` and the
-# outward hop BOUNCES — gmail MX answers `550-5.7.1 [62.212.207.81] The IP you're
-# using to send mail is not authorized` — then postfix discards the message. So
-# every `mailnotification failure` / `backup-failed` event reaches nobody, and the
-# watchdog itself has no escalation path.
-# ⚠ An empty `mailq` is NOT evidence of a working transport: the queue drained
-#     precisely because the messages bounced (measured: queue empty, 84 bounce/
-#     defer lines in 24 h). Only the delivery record distinguishes the two, which
-#     is why this gate counts outcomes rather than queue depth.
+# ⚠ FIXED 2026-10-24 — the first version of this gate counted bounced/deferred mail
+#   only. That decays to zero when nothing fails (no failing job ⇒ no mail ⇒ no
+#   bounce), so a quiet fleet would have read "transport OK" WITHOUT ANY TEST —
+#   absence of failure is not presence of success. The gate now needs BOTH:
+#   (a) no bounce/defer in the window (a failure record), AND
+#   (b) a positive delivery PROOF RECORD newer than TRANSPORT_PROOF_MAX_AGE_DAYS,
+#       written only by `jol-verify-alert-transport` after an outward `status=sent`.
+# Measured transport reality (48 h journal, 2026-10-24): TWO independent defects —
+#   ~104 `status=deferred` (connect to …gmail-smtp-in…:25 `Connection timed out` /
+#   IPv6 `Network is unreachable`) AND successful connections that then `status=bounced`
+#   with `550-5.7.1 [62.212.207.81] … not authorized` and `550-5.7.26 sender
+#   unauthenticated … SPF [pve.prod.lt9] did not pass`. So :25 is PARTIALLY blocked
+#   after all (the 2026-10-23 "falsified" note was over-inference from one sample) and
+#   the sender is also unauthorised/unauthenticated. Fix needs an authenticated relay,
+#   which is exactly what a proof record verifies end to end.
 if have journalctl; then
     TRANSPORT_COUNTS="$(journalctl -u postfix --since "-24 hours" --no-pager 2>/dev/null | grep -cE 'status=(bounced|deferred)' || true)"
     if [[ -z "$TRANSPORT_COUNTS" ]]; then
         alert "cannot read the postfix journal — alert transport is UNVERIFIED (not assumed working)"
     elif (( TRANSPORT_COUNTS > 0 )); then
         alert "ALERT TRANSPORT BROKEN: ${TRANSPORT_COUNTS} message(s) bounced/deferred in the last 24 h — failure notifications are NOT reaching anybody (runbook §7.2)"
+    fi
+    PROOF_RECORD="$(cat "$PROOF_FILE" 2>/dev/null || true)"
+    if [[ -z "$PROOF_RECORD" ]]; then
+        alert "alert transport NEVER VERIFIED end-to-end — no proof record at ${PROOF_FILE}; run 'sudo jol-verify-alert-transport' (runbook §7.2)"
+    elif [[ "$(find "$PROOF_FILE" -mtime "-${TRANSPORT_PROOF_MAX_AGE_DAYS}" 2>/dev/null)" != "$PROOF_FILE" ]]; then
+        alert "alert transport proof is STALE (> ${TRANSPORT_PROOF_MAX_AGE_DAYS} d): ${PROOF_RECORD} — re-run 'sudo jol-verify-alert-transport'"
     else
-        info "Alert transport: no bounced/deferred mail in the last 24 h"
+        info "Alert transport proof: ${PROOF_RECORD}"
     fi
 else
     probe_missing journalctl 13

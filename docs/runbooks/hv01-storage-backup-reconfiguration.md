@@ -512,10 +512,32 @@ the only place this can be enforced.
 | `1FDE03214F7` | `mr.gintaras@gmail.com` (root@pam's address) | **`status=bounced`** — `relay=gmail-smtp-in.l.google.com:25`, `550-5.7.1 [62.212.207.81] The IP you're using to send mail is not authorized to send email directly to our servers` — then `removed` |
 
 So: the PVE notification plumbing is intact and the *only* target is `mail-to-root` (builtin, `sendmail`),
-and Gmail permanently rejects direct SMTP from this IP. Every `backup-failed` / `mailnotification failure`
-event therefore dies in a bounce that nobody reads. **This also falsifies the 2026-10-21 note that
-outbound `:25` is blocked** — `:25` reaches Google fine; the failure is sender authorisation, and the
-"9 deferred" queue has since drained into bounces (`mailq` now empty).
+and Gmail rejects direct SMTP from this IP. Every `backup-failed` / `mailnotification failure` event
+therefore dies in a bounce that nobody reads.
+
+> ⚠ **2026-10-24 correction — the sentence above that claimed this "falsifies the 2026-10-21 note that
+> outbound `:25` is blocked" was itself over-inference, and is withdrawn.** Re-measured over 48 h of the
+> postfix journal instead of one sample: **two independent defects coexist** —
+> (a) `status=deferred`, `connect to alt2.gmail-smtp-in.l.google.com[…]:25: Connection timed out` (IPv4) and
+> `Network is unreachable` (IPv6) ≈ **104 records in 48 h** ⇒ :25 IS partially blocked, as originally noted;
+> and (b) the attempts that do connect `status=bounced` with `550-5.7.1 … IP … not authorized` / `550-5.7.26
+> sender unauthenticated … SPF [pve.prod.lt9] … did not pass`. One success proves reachability, not
+> reachability-of-the-route-you-will-need; a `mailq` that drains is still not a working transport.
+> Consequence for the fix: an authenticated submission relay (465) addresses both; Telegram avoids both.
+
+**Gate 13 was also unsound, and is fixed (2026-10-24).** Counting bounced/deferred mail is a *failure*
+signal that **decays to zero when nothing is failing** — no failing job ⇒ no mail ⇒ no bounce ⇒ the gate
+would have reported "transport fine" on a fleet where no test had ever run. Absence of failure is not
+presence of success. Gate 13 now requires BOTH: (a) zero bounced/deferred in 24 h, and (b) a positive
+**proof record** at `/var/lib/jol-hv01/alert-transport-proof`, written only by
+`scripts/maintenance/hv01-verify-alert-transport.sh` (`/usr/local/bin/jol-verify-alert-transport`) after
+postfix logs an **outward** `status=sent` (a `relay=local` hop is explicitly rejected as non-proof).
+Proved today: `sudo jol-verify-alert-transport` injected a probe (envelope-sender nonce → queue id
+`8E54B321566`), read `status=bounced relay=gmail-smtp-in.l.google.com[…]:25 dsn=5.7.26`, exited **1**, and
+wrote **no** proof file — so gate 13 stays red, which is the truth. Gate branches proved in both directions
+by overriding `PROOF_FILE` / `TRANSPORT_PROOF_MAX_AGE_DAYS` (never by planting fake evidence on the host):
+absent → `NEVER VERIFIED`, synthetic fresh → that alert clears while the bounce alert remains, synthetic +
+`…MAX_AGE_DAYS=0` → `proof is STALE` naming the record, and the synthetic file was removed afterwards.
 
 **Professional opinion (2026-10-23, after the operator asked me to choose and implement):** the target state
 is **Telegram** (`type=telegram`, bot token from @BotFather). Rationale: it needs no IP-reputation
@@ -528,7 +550,7 @@ The design was therefore split into three layers that need **zero credentials**;
 
 | Layer | What | Where | Proof |
 |---|---|---|---|
-| 1 | watchdog **gate 13** — alert-transport liveness; counts `status=(bounced\|deferred)` in the postfix journal, never queue depth | `scripts/maintenance/hv01-health-check.sh` → `pve:/usr/local/bin/jol-health-check.sh`, sha `34799462193c…` | fired `rc=1`: `CRITICAL: ALERT TRANSPORT BROKEN: 81 message(s) bounced/deferred in the last 24 h` |
+| 1 | watchdog **gate 13** — alert-transport liveness; counts `status=(bounced\|deferred)` in the postfix journal, never queue depth. **Revised 2026-10-24:** a decay-to-zero count is not proof, so it now ALSO requires a positive outward-delivery proof record (`jol-verify-alert-transport`) newer than 7 d | `scripts/maintenance/hv01-health-check.sh` → `pve:/usr/local/bin/jol-health-check.sh`, sha `459de970e312…` | fired `rc=1` with 2 CRITICALs: `ALERT TRANSPORT BROKEN: 4 message(s) …` + `alert transport NEVER VERIFIED end-to-end …` |
 | 2 | **pbs01 got a watchdog of its own** (10 gates: chrony quorum/offset, pool %, GC, prune+verify existence, per-group freshness parsed from UTC snapshot *names*, ACL drift, auditd local-only, fail2ban, services) | `scripts/maintenance/pbs01-health-check.sh` → `pbs01:/usr/local/bin/jol-pbs01-health-check.sh`, sha `ad056ff3979e…`, cron `15 6 * * *` | normal run `rc=0` + GC `WARN`; forced thresholds → 7 CRITICALs `rc=1`; executed on hv01 → `rc=2` host-guard abort |
 | 3 | **workstation pull** — runs both watchdogs over SSH every 15 min and raises a desktop alert | `scripts/maintenance/fleet-health-pull.sh` + `install-fleet-health-timer.sh` → `~/.local/bin/jol-fleet-health-pull.sh`, sha `2591b5b36fdd…`, `jol-fleet-health.timer` enabled | installer's own proof: service exits `rc=1` while transport is broken; every run logged to `~/.local/share/jol-fleet-health/pull.log` |
 
