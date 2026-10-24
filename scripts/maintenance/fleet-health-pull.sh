@@ -84,6 +84,12 @@ for target in "${TARGETS[@]}"; do
     # Word-split the options deliberately and safely — no eval (an eval-built ssh
     # command line is an injection habit, and the remote command must stay ONE arg).
     read -r -a ssh_args <<< "$SSH_OPTS"
+    # SC2029: the client-side expansion here is intentional and inert — every $cmd is a
+    # fixed literal defined in TARGETS ("sudo /usr/local/bin/jol-…-check.sh"), containing
+    # no client variables. It must arrive at the far side as one unparsed string so the
+    # REMOTE shell resolves it (and its `sudo`). Do not "fix" this by quoting it further:
+    # ssh takes everything after the hostname as the remote command, verbatim.
+    # shellcheck disable=SC2029
     out="$(ssh "${ssh_args[@]}" "$host" "$cmd" 2>&1)"
     rc=$?
     if [[ $rc -eq 255 ]]; then
