@@ -454,8 +454,16 @@ snapshot of VMID 100 exists **and** its restore drill passed.
                           neither backup-path source (`10.60.60.20`, `10.30.30.10`) is reachable on :22 and
                           neither can ever be banned by an operator typo. Evidence:
                           `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt`
-□ Docs + change record    pve-prod-hv01.md, pbs01.md, hosts.yml corrected; issue closed with
-                          evidence links (CC8.1)
+✔ Docs + change record    pve-prod-hv01.md, pbs01.md, hosts.yml corrected. **CC8.1 change record RAISED
+                          2026-10-24: issue #116 `JOL-BACKUP-20261021-01`** — risk level High (with one
+                          Critical sub-action: the `/etc/pve/jobs.cfg` file edit), blast radius, per-change
+                          rollback and verification, secret-handling disclosure incl. INC-20261022-TOKEN-EXPOSURE,
+                          and the open items this record does NOT close. The 16 CHANGELOG rows written during
+                          this thread had carried `TBD (CC8.1 issue — raise before close)` since 2026-10-21 —
+                          an open change-management violation, now referenced to #116 in the Ticket column.
+                          ⚠ Remaining debt: **21 older CHANGELOG rows** in other threads (prox01, cable audit,
+                          rename, jol-pilot) still say `TBD (CC8.1 issue)` and need their own records; and
+                          "issue closed" still requires the PR to be merged.
 ```
 
 ## 7. Next change window — PLANNED, NOT EXECUTED (authored 2026-10-23T19:45Z)
