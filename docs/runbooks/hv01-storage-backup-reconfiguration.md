@@ -462,8 +462,10 @@ snapshot of VMID 100 exists **and** its restore drill passed.
                           this thread had carried `TBD (CC8.1 issue — raise before close)` since 2026-10-21 —
                           an open change-management violation, now referenced to #116 in the Ticket column.
                           ⚠ Remaining debt: **21 older CHANGELOG rows** in other threads (prox01, cable audit,
-                          rename, jol-pilot) still say `TBD (CC8.1 issue)` and need their own records; and
-                          "issue closed" still requires the PR to be merged.
+                          rename, jol-pilot) still say `TBD (CC8.1 issue)` and need their own records.
+                          **PR #117** opened 2026-10-24 against `main` (`Closes #116`, `MERGEABLE`) — the
+                          branch is now pushed, so these artifacts no longer live on the single laptop disk
+                          that this incident started with. "Issue closed" still requires that merge.
 ```
 
 ## 7. Next change window — PLANNED, NOT EXECUTED (authored 2026-10-23T19:45Z)
