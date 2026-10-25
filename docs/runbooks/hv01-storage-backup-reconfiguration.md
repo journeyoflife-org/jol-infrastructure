@@ -549,12 +549,81 @@ by overriding `PROOF_FILE` / `TRANSPORT_PROOF_MAX_AGE_DAYS` (never by planting f
 absent → `NEVER VERIFIED`, synthetic fresh → that alert clears while the bounce alert remains, synthetic +
 `…MAX_AGE_DAYS=0` → `proof is STALE` naming the record, and the synthetic file was removed afterwards.
 
+> ⚠ **2026-10-24, later the same day — gate 13 was wrong twice more, found by reading its own
+> output instead of trusting its verdict.** (1) **The count was contaminated by the verifier.**
+> `jol-verify-alert-transport` injects with envelope sender `<nonce>@pve.prod.lt9`, and
+> `myhostname` is in `mydestination`, so a Gmail rejection generates a DSN back to that sender
+> and `postfix/local` answers `status=bounced (unknown user: "jolproof…")`. **One probe mail
+> therefore wrote two bounce records**, so the gate's number was one higher than the number of
+> failed messages. Measured live, both pipelines against the same journal: as-deployed **5**,
+> outward-only **4**; the extra record is queue `7E5F3321572`, `relay=local`. (2) **The "cannot
+> read the journal" branch was dead code** — `grep -c` always prints a number, so a failed
+> `journalctl` (errors swallowed by `2>/dev/null`) produced `0` and the gate read an
+> *unreadable* journal as "transport fine": gate 10's dead branch in a new costume, and exactly
+> the silent-pass class this gate exists to prevent.
+>
+> Both fixed in `scripts/maintenance/hv01-health-check.sh` (worktree sha `46d67e1975d6…`, which was **never
+> committed** — superseded by the 2026-10-25 note below; **not deployed** — the host still runs
+> `459de970e312…`, byte-identical to `git show HEAD:scripts/maintenance/hv01-health-check.sh`), so that
+> paragraph described a worktree state, not live state. (a) now counts OUTWARD records only, excluding
+> `relay=local` — the same
+> refusal (b) already applies to a `relay=local` `status=sent`, so the two halves of the gate
+> are now consistent about what "the transport" means. Readability is decided by journalctl's
+> **exit status**, proved to discriminate: rc=1 on a real failure, rc=0 on a unit that is merely
+> quiet, so a day with no mail at all still reads as zero failures and (b) keeps the bar.
+> Trade-off stated: a broken LOCAL mailbox on the `mail-to-root` hop is no longer counted here,
+> because that hop is not an off-host alert; `relay=none` defers — 70 records in the 48 h
+> window, the real :25 timeouts — are deliberately still counted as failures.
+>
+> **Fixtures (the control the gate previously had none of):** `scripts/maintenance/tests/
+test-hv01-gate13.sh`
+> sources the gate text **out of the script under test** (never a copy, so it cannot
+> drift into proving nothing) and runs 8 cases against a stubbed `journalctl`. Against `HEAD` it
+> reports **5 passed, 3 failed** — the failures are precisely the contamination (a probe-only
+> journal counted as 1, a mixed journal as 3) and the dead branch (unreadable journal → zero
+> alerts). Against the fix: **8 passed, 0 failed**, `shellcheck -x` clean at CI severity. Two
+> defects in my own first harness were also fixed, both of the "control that cannot fail" class:
+> a `printf` of *filenames* where *contents* were meant, and a single shared `PROOF_FILE` path
+> that let an earlier case's fresh proof satisfy a later case asserting "no proof record".
+
+> ⚠ **2026-10-25 — defect 3, found by reading the alert the gate emitted rather than the gate itself.** The
+> count is **delivery records, not messages**: a deferred mail writes one record per retry attempt. Measured
+> live on `pve-prod-hv01` in the 24 h window — **14 records = 3 distinct queue ids** (`70268321566` retried
+> 12× plus two Gmail bounces), so the desktop dialog read "14 message(s)" for three lost alerts. A number
+> that inflates with retry churn is the wrong triage signal: it looks like a spreading failure when it is one
+> stuck mail. The gate now collapses to distinct queue ids and names the record total beside it
+> (`3 outward message(s) … (14 delivery records, retries collapsed)`). Proved against live data, not only
+> against fixtures: the same pipelines over the same journal return `records=14 messages=3`.
+> **Fallback (case 10, negative control):** a `status=` record whose queue id the pattern cannot read falls
+> back to the record count, so an unexpected log format can only ever **over**-count — never silently
+> under-count, which is the class of bug this gate exists to catch.
+>
+> **Fixture evidence, both directions:** the harness is now 10 cases / 11 assertions → **`11 passed,
+> 0 failed`** against the fix (`e6aaba5550da…`) and **`6 passed, 5 failed`** against `HEAD`
+> (`459de970e312…`), the `HEAD` failures being cases 1, 4, 6 and 9 — every defect this gate has ever had is
+> now covered by a control that demonstrably FAILS on the broken version (the 8-case counts quoted above are
+> the 2026-10-24 state, superseded). A harness that passes against both versions proves nothing, so the
+> before/after run is part of the evidence. `shellcheck -x` on both files: clean. **The exact CI command**
+> (`find scripts/ -name '*.sh' -exec shellcheck -x {} +`) **exits 1 on inherited findings in
+> `scripts/audit/verify-basilica-{exit-gates,preflight}.sh`** (SC2034/SC2317, present on `origin/main`),
+> zero in this branch's files — `git diff --name-only origin/main..HEAD -- scripts/audit/` is empty, so the
+> lint job is red before and after this change, not because of it.
+>
+> ⚠ **Nothing in this paragraph repairs the transport.** Gate 13 became a sounder measurement of a transport
+> that is still dead. Re-measured 2026-10-25 on hv01: `relayhost` **empty**, the only notification endpoint
+> is the builtin `mail-to-root` (`sendmail`), `/var/lib/jol-hv01/` **does not exist** (no proof record has
+> ever been written), 2 × `status=bounced` (`550-5.7.26 … SPF [pve.prod.lt9] did not pass`, source
+> `62.212.195.151`) and 12 × `status=deferred relay=none` in 24 h, and 1 message stuck in `mailq`. Both
+> CRITICALs the operator is being shown are therefore **true**, not monitor noise.
+
 **Professional opinion (2026-10-23, after the operator asked me to choose and implement):** the target state
 is **Telegram** (`type=telegram`, bot token from @BotFather). Rationale: it needs no IP-reputation
 relationship to repair — Gmail's `550-5.7.1` rejection is permanent for this class of source IP, and an
 SMTP relay only moves the problem onto a provider account that can silently lapse; it is the only channel
 that pushes to a phone the operator carries, which is what an RTO-4 h control actually requires; PVE 9
-supports it natively, so no new collector enters the trust boundary. It costs **one secret that the operator
+supports it natively, so no new collector enters the trust boundary. *(⚠ **withdrawn 2026-10-25** — the last
+clause is false on this host: `pve-manager/9.2.10` exposes no `telegram` endpoint type, see the correction
+under "Remaining" below.)* It costs **one secret that the operator
 must create and must never paste into a chat, ticket or shell history** (§0.1) — so it cannot ship tonight.
 The design was therefore split into three layers that need **zero credentials**; all three are shipped:
 
@@ -593,6 +662,49 @@ PVE and match the failure events to it, then mirror the same liveness gate onto 
 names for `--type telegram` targets/matchers MUST be read back from the host's own help output before
 executing — I will not guess a schema that touches a credential. ⚠ UNVERIFIED until then.
 
+> ⚠ **2026-10-25 — that paragraph is superseded: the Telegram premise is false on this host.** Measured with
+> `pvesh ls /cluster/notifications/endpoints` on `pve-manager/9.2.10`: the endpoint types are **`gotify`,
+> `sendmail`, `smtp`, `webhook` — there is no `telegram`**. So "PVE 9 supports it natively, no new collector
+> enters the trust boundary" does not hold; Telegram would need an external collector/bot bridge, i.e. the
+> thing the rationale claimed to avoid. Re-probed egress from hv01: **`smtp.gmail.com:465` and `:587` are
+> OPEN**, `:25` times out — so the blocked port is not an obstacle to an authenticated submission relay.
+>
+> **Revised recommendation: an authenticated submission smarthost in postfix** —
+> `relayhost = [smtp.<provider>]:465`, `smtp_sasl_password_maps = hash:/etc/postfix/sasl/passwd`
+> (`postmap`, file `600 root:root`), `smtp_sasl_auth_enable = yes`, `smtp_tls_security_level = encrypt`,
+> `smtp_sasl_security_options = noanonymous`, then `systemctl reload postfix`. Why this over the PVE-native
+> options:
+> - it fixes **both** measured defects at once — the `5.7.26` unauthenticated-sender rejection (the relay
+>   authenticates and aligns SPF/DKIM with the provider's domain) and the blocked direct-`:25` route;
+> - it keeps `mail-to-root` → postfix as the **single** alert path, so gate 13 and
+>   `jol-verify-alert-transport` keep measuring the route alerts actually take;
+> - **rejected: the PVE `smtp` endpoint** — PVE sends it directly and bypasses postfix, which would leave
+>   gate 13 counting a journal that no longer carries alert traffic (a vacuous green, the exact failure
+>   class this gate was built to stop) and the verifier proving a dead path;
+> - **rejected: `gotify`/`webhook`** today — both need a collector service that does not exist yet, and a
+>   collector on the same host cannot prove the host's own alerting (self-referential blindness, already
+>   fixed once for pbs01's log path).
+>
+> Credential rule unchanged: the relay account and password are created and typed by the operator — never
+> into chat, a ticket, a commit or shell history (§0.1); `postmap` the file, keep it `600 root:root`, and
+> never pass it as a CLI argument. Rollback: comment the four `relayhost`/`smtp_sasl_*` lines,
+> `systemctl reload postfix` (returns to today's known-broken-but-honest state).
+
+### 7.3 Verification checklist for the transport fix (run after §7.2 is applied)
+
+```bash
+# [PVE] all four must be true before the change is called done
+sudo postconf -n | grep -E '^(relayhost|smtp_sasl_auth_enable|smtp_tls_security_level)'   # relay set, auth on, encrypt
+sudo jol-verify-alert-transport                       # rc=0 and it writes the proof record
+sudo cat /var/lib/jol-hv01/alert-transport-proof      # PASS line with an OUTWARD relay, not relay=local
+sudo /usr/local/bin/jol-health-check.sh; echo "rc=$?" # gate 13 green; overall rc reflects remaining gates
+journalctl -u postfix --since "-15 min" | grep -cE 'status=(bounced|deferred)'   # 0
+```
+
+⚠ A green gate 13 after this means *one* probe left the host. It does not mean every failure event has a
+recipient: confirm in the PVE GUI (Datacenter → Notification → Matchers) that `backup-failed`,
+`mailnotification failure` and node-level errors still route to the target you just repaired.
+
 ## Change History
 
 | Date | Change | Evidence |
@@ -608,3 +720,4 @@ executing — I will not guess a schema that touches a credential. ⚠ UNVERIFIE
 | 2026-10-22 (grants) | **PRODUCTION CHANGE on pbs01 (PBS access control): the `jol-hv01` namespace grant is applied, closing blocker (a) of the datastore registration.** `DatastorePowerUser` on `/datastore/pbs-store/jol-hv01` with `propagate=1` granted to `pve-backup@pbs` **and** `pve-backup@pbs!pve-token` (`acl update` rc=0 for both). Verified by read-back rather than by exit code: the token's effective privileges moved from **empty** to `Datastore.Backup (*)` + `Datastore.Prune (*)`, and the rows are in `/etc/proxmox-backup/acl.cfg` (0640 root:backup) so they survive a restart. **Reference check settled a surprise:** `user permissions` on the nightly-working `jol-llm-backup@pbs!llm-token` shows the same two-privilege shape, confirming `DatastorePowerUser` does not list Read/Verify/Audit explicitly — restore of owned groups is implied by `Datastore.Backup`. So the grant is *identical in shape to a control already proven in production*, not a guess. ⚠ **New rollback gap found and filled in §4:** PBS 4.2 `proxmox-backup-manager acl` has **no `delete`** subcommand, so unwinding a grant needs the UI (or `NoAccess`) — §4 had no phase-4 row at all before this. §3b rows 4–5 restate the remaining single blocker: `pbs01.pw` = 1 byte, so the token must be **rotated** (secret typed into the PVE form, never a shell) before `pvesm status` can go `active`. No credentials read or printed in this session | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §16 |
 | 2026-10-21 | Onboarding procedure made host-agnostic after the pbs01-only CLI was pasted into the workstation shell twice (§13): PBS Web UI is now the prescribed path (Permissions and Namespaces views answer the same questions with no CLI), a `[ -x /usr/bin/proxmox-backup-manager ]` guard precedes any CLI form, the ACL option is corrected to `--auth-id`, namespace ACL paths must come from the GUI picker, and a verified self-expiring loopback tunnel via hv01 is documented as the one-off access route (recorded as an access deviation) | `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §12–§13 |
 | 2026-10-23 | **Alerting made self-detecting without any credential (3 layers), and §6/§7.1 corrected again.** Layer 1 = hv01 watchdog gate 13 (postfix `status=(bounced\|deferred)` count, never queue depth) → live `rc=1` "81 message(s) bounced/deferred". Layer 2 = new **pbs01 watchdog** (10 gates) installed `750 root:root` + cron `15 6 * * *`; green `rc=0` + GC WARN, forced thresholds 7 CRITICALs `rc=1`, host guard `rc=2`. Layer 3 = workstation **fleet-health pull** on a 15-min systemd user timer. Two defects caught by testing before deploy: (a) both watchdogs wrote their `HEALTH CHECK COMPLETE` marker to the log file only (`info()` never touched stdout) so the pull's gate-coverage check would have raised a **permanent false UNVERIFIED alert on both hosts**; (b) the pull's `STATE` variable was declared "for silence detection" but never used — it now reports alert age (`last OK: 37 h ago`), notifies only on **change of the alert set** (digits masked) and announces recovery, because 96 identical dialogs a day train the operator to ignore the real one. Also corrected here: §6's GC gate still told the operator to run `garbage-collection create`, **a verb that does not exist in PBS 4.2** (§7.1 had already been corrected the same evening) — GC is a datastore property (`datastore update --gc-schedule`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §22; host shas `34799462193c…` / `ad056ff3979e…` / `2591b5b36fdd…` |
+| 2026-10-25 | **Gate 13 defect 3 fixed (repo + docs only, nothing deployed): the alert counted delivery RECORDS, not messages.** Measured live on hv01 — 14 records in the 24 h window = **3 distinct queue ids** (mail `70268321566` retried 12× plus two Gmail bounces), so the dialog said "14 message(s)" for three lost alerts. The gate now collapses to distinct queue ids, names the record total beside it, and falls back to the record count when a queue id cannot be parsed (can only over-count, never silently under-count). Fixtures → 10 cases / 11 assertions, run **both** directions: `11 passed, 0 failed` on the fix (`e6aaba5550da…`) vs `6 passed, 5 failed` on `HEAD` (`459de970e312…`, failing cases 1/4/6/9) — the controls demonstrably fail on the broken version. `shellcheck -x` clean on both files; the repo-wide CI command stays red only from pre-existing `scripts/audit/verify-basilica-*.sh` findings also on `origin/main`. **Also corrected: the §7.2 Telegram target state is impossible on this host** — `pvesh ls /cluster/notifications/endpoints` on PVE 9.2.10 offers `gotify/sendmail/smtp/webhook`, **no `telegram`** — so the fix is re-recommended as an authenticated postfix submission relay on `:465`/`:587` (both measured OPEN from hv01 while `:25` times out; new §7.3 verification checklist), which repairs both defects and keeps gate 13 + the verifier on the path alerts actually take. **Transport still dead after this change and both CRITICALs are true** (`relayhost` empty, only builtin `mail-to-root`, `/var/lib/jol-hv01/` absent, 1 mail stuck in `mailq`). ⚠ **Compliance gap flagged, not silently backfilled:** the 2026-10-23/24 watchdog deployments (a production change on two hosts) are recorded here and in evidence §22 but have **no `CHANGELOG.md` row**. No credential read, printed or handled; no production mutation in this session | this §7.2/§7.3; `scripts/maintenance/tests/test-hv01-gate13.sh`; workstation `~/.local/share/jol-fleet-health/pull.log` 2026-10-25 |

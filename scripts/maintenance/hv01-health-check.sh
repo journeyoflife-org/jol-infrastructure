@@ -304,12 +304,54 @@ done < <(pvesm status 2>/dev/null | awk 'NR>1 {print $1, $3}')
 #   after all (the 2026-10-23 "falsified" note was over-inference from one sample) and
 #   the sender is also unauthorised/unauthenticated. Fix needs an authenticated relay,
 #   which is exactly what a proof record verifies end to end.
+# ⚠ FIXED again 2026-10-24, by reading this gate's own output — two defects in the gate
+#   itself, both proved against the live journal, neither visible in the verdict:
+#   1. The count was contaminated by the VERIFIER'S OWN bounce. `jol-verify-alert-transport`
+#      injects with envelope sender `<nonce>@pve.prod.lt9`, and `myhostname` is in
+#      `mydestination`, so a Gmail rejection generates a DSN back to that sender and
+#      `postfix/local` answers `status=bounced (unknown user: "jolproof…")`. One probe
+#      therefore wrote TWO records and the gate reported "6 message(s)" for 5 real
+#      failures. A metric contaminated by its own diagnostic is not a metric, so (a)
+#      now counts OUTWARD attempts only — the same `relay=local` refusal that (b)
+#      already applies to a `relay=local` `status=sent`. Trade-off stated: a broken
+#      LOCAL mailbox on the `mail-to-root` hop is no longer counted here, because that
+#      hop is not an off-host alert; `relay=none` defers (a real :25 timeout — 70
+#      records in the 48 h window) are deliberately still counted as failures.
+#   2. The "cannot read the journal" branch was DEAD CODE: `grep -c` always prints a
+#      number, so a failed `journalctl` (errors swallowed by 2>/dev/null) yielded "0"
+#      and the gate read an unreadable journal as "transport fine" — gate 10's dead
+#      branch in a new costume, the exact silent-pass class this gate exists to stop.
+#      Readability is now decided by journalctl's EXIT STATUS, proved to discriminate:
+#      rc=1 on a real failure, rc=0 on a unit that is merely quiet — so a day with no
+#      mail at all still reads as zero failures, and (b) keeps the bar.
+#   3. Counted DELIVERY RECORDS, not messages (measured 2026-10-25). One deferred
+#      message writes one record per retry attempt, so a single stuck mail produced
+#      12 of the 14 records in the window: 14 "messages" reported for 3 real ones.
+#      The number is the triage signal — an inflating one reads as a spreading
+#      failure instead of one mail that cannot leave the host. Now collapses to
+#      distinct queue ids and names the record count beside it.
 if have journalctl; then
-    TRANSPORT_COUNTS="$(journalctl -u postfix --since "-24 hours" --no-pager 2>/dev/null | grep -cE 'status=(bounced|deferred)' || true)"
-    if [[ -z "$TRANSPORT_COUNTS" ]]; then
+    if ! POSTFIX_JOURNAL="$(journalctl -u postfix --since "-24 hours" --no-pager 2>&1)"; then
         alert "cannot read the postfix journal — alert transport is UNVERIFIED (not assumed working)"
-    elif (( TRANSPORT_COUNTS > 0 )); then
-        alert "ALERT TRANSPORT BROKEN: ${TRANSPORT_COUNTS} message(s) bounced/deferred in the last 24 h — failure notifications are NOT reaching anybody (runbook §7.2)"
+    else
+        TRANSPORT_FAILURES="$(printf '%s\n' "$POSTFIX_JOURNAL" |
+            grep -vE 'relay=local' | grep -E 'status=(bounced|deferred)' || true)"
+        TRANSPORT_RECORDS=0
+        TRANSPORT_MESSAGES=0
+        if [[ -n "$TRANSPORT_FAILURES" ]]; then
+            TRANSPORT_RECORDS="$(printf '%s\n' "$TRANSPORT_FAILURES" | wc -l)"
+            TRANSPORT_MESSAGES="$(printf '%s\n' "$TRANSPORT_FAILURES" |
+                sed -nE 's#.* postfix/[a-z]+\[[0-9]+\]: ([0-9A-F]+): .*#\1#p' | sort -u | wc -l)"
+            # A status= line whose queue id this pattern cannot read must NOT vanish:
+            # fall back to the record count, so an unexpected log format can only ever
+            # over-count, never silently under-count.
+            (( TRANSPORT_MESSAGES > 0 )) || TRANSPORT_MESSAGES="$TRANSPORT_RECORDS"
+        fi
+        if (( TRANSPORT_RECORDS > TRANSPORT_MESSAGES )); then
+            alert "ALERT TRANSPORT BROKEN: ${TRANSPORT_MESSAGES} outward message(s) bounced/deferred in the last 24 h (${TRANSPORT_RECORDS} delivery records, retries collapsed) — failure notifications are NOT reaching anybody (runbook §7.2)"
+        elif (( TRANSPORT_MESSAGES > 0 )); then
+            alert "ALERT TRANSPORT BROKEN: ${TRANSPORT_MESSAGES} outward message(s) bounced/deferred in the last 24 h — failure notifications are NOT reaching anybody (runbook §7.2)"
+        fi
     fi
     PROOF_RECORD="$(cat "$PROOF_FILE" 2>/dev/null || true)"
     if [[ -z "$PROOF_RECORD" ]]; then
