@@ -467,16 +467,21 @@ snapshot of VMID 100 exists **and** its restore drill passed.
                           ns/jol-hv01 as well; the PVE job's identical 7/4/6 is a second pruner on the
                           same groups. Values agree today ⇒ no loss; the hazard is DRIFT (change one,
                           not both → retention silently becomes the intersection). Single-source it.
-✘ Garbage collection   `garbage-collection list` → schedule/next-run/last-run-state ALL EMPTY,
-                          pending-bytes 0 B today only because nothing has been pruned yet.
-                          **HIGH: orphaned chunks are never reclaimed ⇒ the pool fills silently.**
-                          Fix (needs its own change window): GC is a DATASTORE PROPERTY in PBS 4.2 —
-                          `proxmox-backup-manager datastore update pbs-store --gc-schedule "sat 04:30"`
-                          (there is **no** `garbage-collection create` verb; the earlier text in this gate
-                          named a command that does not exist and cannot work — corrected, §7.1). Detection
-                          is live now: the pbs01 watchdog prints a `WARN: garbage collection is NOT scheduled`
-                          line on every run. Apply after the first prune leaves garbage, then confirm
-                          `pending-bytes` drops to 0 on the next GC.
+✔ Garbage collection   SCHEDULED 2026-10-31T21:25Z (issue #126) — `datastore update pbs-store
+                          --gc-schedule "sat 04:30"` rc=0; read-back: `garbage-collection list` →
+                          `schedule sat 04:30`, `next-run Sat Nov  7 04:30:00 2026` (local);
+                          `datastore show --output-format json` → `{"gc-schedule":"sat 04:30",…}`;
+                          persisted at `datastore.cfg:2` with the leading TAB PBS writes itself.
+                          ⚠ Writing the schedule did NOT start a GC (`upid: null`, no new task) —
+                          the §7.1 open question answered by observation, not assumption.
+                          ⚠ **F-5, the reason gate 3 (`pending-bytes` > 50 GiB) cannot fire yet:**
+                          `garbage-collection status` is the **last GC run's** tally — with no run
+                          ever executed it returns all zeros (`disk-bytes 0`, `pending-bytes 0`) even
+                          though prunes have already deleted groups. So that gate reads "0 GiB pending"
+                          = healthy, which is an **absence of measurement rendered as a number**. It
+                          becomes meaningful after 2026-11-07 04:30. Historical text kept for the
+                          record: the fix is `datastore update --gc-schedule`; there is **no**
+                          `garbage-collection create` verb in PBS 4.2.
 ✔ Integrity verify     `pbs-store-verify` already exists (`*-*-01 04:00:00`, outdated-after 30,
                           ignore-verified 1) — monthly. Raised as a FREQUENCY gap, not a missing job.
 ✘ Off-site copy        `remote list` and `sync-job list` → none. 0 off-site copies (3-2-1 unmet).
@@ -505,9 +510,11 @@ snapshot of VMID 100 exists **and** its restore drill passed.
                           that this incident started with. "Issue closed" still requires that merge.
 ```
 
-## 7. Next change window — PLANNED, NOT EXECUTED (authored 2026-10-23T19:45Z)
+## 7. Next change window — §7.1 **EXECUTED 2026-10-31**, §7.2/§7.3 still open (authored 2026-10-23T19:45Z)
 
-Two controls are missing and both were sized by measurement, not assumption. Neither has been applied.
+Two controls were missing and both were sized by measurement, not assumption. **§7.1 (GC schedule) was
+applied 2026-10-31T21:25Z under issue #126 — see the executed record below §7.1.** §7.2/§7.3 (the
+failure-alert transport) remain open: detection exists, delivery does not.
 
 ### 7.1 Schedule garbage collection on `pbs-store` (HIGH)
 
@@ -536,6 +543,30 @@ proxmox-backup-manager datastore update pbs-store --gc-schedule "sat 04:30"
 proxmox-backup-manager garbage-collection list | grep -A3 pbs-store
 proxmox-backup-manager datastore show pbs-store --output-format json       # gc_schedule present
 ```
+
+> ✅ **EXECUTED 2026-10-31T21:25:08Z (local) under issue #126, verbatim from the procedure above.**
+> Pre-checks: no task `running` (newest were `backup`/`prune`/`prunejob`, all `OK`); baseline
+> `garbage-collection list` → schedule/next-run/last-run-state EMPTY, `pending-bytes 0 B`; baseline
+> `datastore show pbs-store --output-format json` → `{"name":"pbs-store","path":"/backup-pool/pbs-store"}`
+> (no `gc-schedule` key); `zfs list` → 73.6 G used / 2.04 T avail.
+> Apply: `datastore update pbs-store --gc-schedule "sat 04:30"` → rc=0, no output.
+> Read-back: `garbage-collection list` → `schedule sat 04:30`, `next-run Sat Nov  7 04:30:00 2026`;
+> `datastore show … --output-format json` → `{"gc-schedule":"sat 04:30","name":…, "path":…}`;
+> `datastore.cfg:2` → `\tgc-schedule sat 04:30` (TAB-prefixed, written by PBS itself — the very
+> serialisation rule that silently killed the hand-edited PVE `jobs.cfg` section, see §3b row 6);
+> `garbage-collection status pbs-store --output-format json` → `next-run: 1794018600`
+> (= 2026-11-07T02:30:00Z = 04:30 EET) and `upid: null`, i.e. **the schedule write did not start an
+> immediate GC** — that open question from the issue body is now answered by measurement.
+> **Why `sat 04:30` and not the daily slot proposed in chat**: `pbs-store-verify` fires
+> `*-*-01 04:00:00`, i.e. tomorrow 2026-11-01 04:00 local; a daily 05:00 GC would have started an hour
+> into that monthly verify, which this section explicitly forbids. Nov 1 2026 is a Sunday, so the
+> weekly Saturday window skips the collision entirely.
+> **Rollback**: `proxmox-backup-manager datastore update pbs-store --delete gc-schedule` (then re-read
+> `garbage-collection list` → schedule empty).
+> **Not yet proven**: that GC actually reclaims — first execution is 2026-11-07 04:30; until then
+> `removed-bytes` stays blank and watchdog gate 3 stays blind (F-5 above). Verify after that run with
+> `garbage-collection list` (`last-run-state OK`, `removed-bytes` non-zero) and
+> `/var/log/jol-pbs01/<date>-health.log` showing no `WARN: garbage collection is NOT scheduled`.
 
 **Window choice**: Saturday 04:30 local — after the nightly 03:00 prune so garbage exists to collect, off
 the monthly verify path (`*-*-01 04:00:00`), and outside the 02:00 vzdump and 03:45 archive pushes.
@@ -759,3 +790,4 @@ recipient: confirm in the PVE GUI (Datacenter → Notification → Matchers) tha
 | 2026-10-23 | **Alerting made self-detecting without any credential (3 layers), and §6/§7.1 corrected again.** Layer 1 = hv01 watchdog gate 13 (postfix `status=(bounced\|deferred)` count, never queue depth) → live `rc=1` "81 message(s) bounced/deferred". Layer 2 = new **pbs01 watchdog** (10 gates) installed `750 root:root` + cron `15 6 * * *`; green `rc=0` + GC WARN, forced thresholds 7 CRITICALs `rc=1`, host guard `rc=2`. Layer 3 = workstation **fleet-health pull** on a 15-min systemd user timer. Two defects caught by testing before deploy: (a) both watchdogs wrote their `HEALTH CHECK COMPLETE` marker to the log file only (`info()` never touched stdout) so the pull's gate-coverage check would have raised a **permanent false UNVERIFIED alert on both hosts**; (b) the pull's `STATE` variable was declared "for silence detection" but never used — it now reports alert age (`last OK: 37 h ago`), notifies only on **change of the alert set** (digits masked) and announces recovery, because 96 identical dialogs a day train the operator to ignore the real one. Also corrected here: §6's GC gate still told the operator to run `garbage-collection create`, **a verb that does not exist in PBS 4.2** (§7.1 had already been corrected the same evening) — GC is a datastore property (`datastore update --gc-schedule`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §22; host shas `34799462193c…` / `ad056ff3979e…` / `2591b5b36fdd…` |
 | 2026-10-25 | **Gate 13 defect 3 fixed (repo + docs only, nothing deployed): the alert counted delivery RECORDS, not messages.** Measured live on hv01 — 14 records in the 24 h window = **3 distinct queue ids** (mail `70268321566` retried 12× plus two Gmail bounces), so the dialog said "14 message(s)" for three lost alerts. The gate now collapses to distinct queue ids, names the record total beside it, and falls back to the record count when a queue id cannot be parsed (can only over-count, never silently under-count). Fixtures → 10 cases / 11 assertions, run **both** directions: `11 passed, 0 failed` on the fix (`e6aaba5550da…`) vs `6 passed, 5 failed` on `HEAD` (`459de970e312…`, failing cases 1/4/6/9) — the controls demonstrably fail on the broken version. `shellcheck -x` clean on both files; the repo-wide CI command stays red only from pre-existing `scripts/audit/verify-basilica-*.sh` findings also on `origin/main`. **Also corrected: the §7.2 Telegram target state is impossible on this host** — `pvesh ls /cluster/notifications/endpoints` on PVE 9.2.10 offers `gotify/sendmail/smtp/webhook`, **no `telegram`** — so the fix is re-recommended as an authenticated postfix submission relay on `:465`/`:587` (both measured OPEN from hv01 while `:25` times out; new §7.3 verification checklist), which repairs both defects and keeps gate 13 + the verifier on the path alerts actually take. **Transport still dead after this change and both CRITICALs are true** (`relayhost` empty, only builtin `mail-to-root`, `/var/lib/jol-hv01/` absent, 1 mail stuck in `mailq`). ⚠ **Compliance gap flagged, not silently backfilled:** the 2026-10-23/24 watchdog deployments (a production change on two hosts) are recorded here and in evidence §22 but have **no `CHANGELOG.md` row**. No credential read, printed or handled; no production mutation in this session | this §7.2/§7.3; `scripts/maintenance/tests/test-hv01-gate13.sh`; workstation `~/.local/share/jol-fleet-health/pull.log` 2026-10-25 |
 | 2026-10-31 | **§3d installed-script drift gate added; PR #117 merged so §6's "Docs + change record" gate can finally close its last clause.** (1) The §0.3 pre-change sha check on `jol-health-check.sh` found the host 42 lines behind the repo — the gate-13 rewrite of 2026-10-24/25 had never been installed — so the fleet's alert numbers were still being produced by the pre-fix code (`19 message(s)` vs the fixed `3 outward message(s) … (19 delivery records …)`). That is F-4, the same manual-deploy class as MCP M3, and §3d turns the spot check that found it into a repeatable gate with 5 rules (committed-file digest, both sides recorded, mode/owner, pbs01 + workstation counterparts, cross-host diff). (2) **§7.2's stale sha citations are marked superseded in place** (`459de970e312…` → `ec3709c993…`, issue #124) rather than rewritten, and the 2026-10-25 note "the CI command stays red from pre-existing `verify-basilica-*.sh` findings" is now closed: those SC2034/SC2317 findings were fixed by deleting the dead code (`780b3e6`), and the tree-wide command is `rc=0`. (3) **PR #117 squash-merged 2026-10-31T21:16:48Z as `fe13218`**, so the 12 commits of this thread are on `main` and issue #116's "Issue closed still requires that merge" condition is met; the merge was attempted **without** `--admin` first and refused by the required-approval ruleset, then bypassed by the repository owner — disclosed in `CHANGELOG.md` (2026-10-31T21:16:48Z row) because it overrides a CC8.1 control. Post-merge `main` CI: run `41242841101` = success, 7/7 jobs. (4) Still open in this runbook: §6 ✘ Garbage collection (§7.1, executed later tonight — see the next row if present), ✘ Off-site copy (3-2-1), ✘ Alert transport (§7.2/§7.3, `:465` relay recommendation awaiting the operator), □ Negative encryption test, □ vm/100 + vm/101 restore drills | this §3d; `CHANGELOG.md` 2026-10-31 rows; `git rev-list --count 2a9a040..caa4988` = 12; `gh pr view 117` / `gh run view 41242841101` |
+| 2026-10-31 21:25Z | **§7.1 EXECUTED — garbage collection scheduled on `pbs-store` (issue #126).** `proxmox-backup-manager datastore update pbs-store --gc-schedule "sat 04:30"` rc=0 over the ADR-008 SSH path, after the documented pre-checks (no running task; baseline `garbage-collection list` schedule empty, `pending-bytes 0 B`; baseline `datastore show` = `{name,path}` only; `zfs list` 73.6 G / 2.04 T). Read-back: `schedule sat 04:30`, `next-run Sat Nov 7 04:30:00 2026` (`next-run: 1794018600` = 2026-11-07T02:30Z), `datastore show --output-format json` carries `gc-schedule`, persisted TAB-indented at `datastore.cfg:2`. **Two facts established rather than assumed:** (1) writing the schedule does **not** start a GC (`upid: null`, no new task); (2) **F-5 — pbs01 watchdog gate 3 (`pending-bytes` > 50 GiB) has been unreadable all along**: `garbage-collection status` reports the *last run's* tally, which on a datastore that has never run GC is structurally all-zero, so the gate renders "0 GiB pending" as health — an absence of measurement wearing a number, the same class as gate 10's dead branch. §6's GC gate flips ✘ → ✔ with that caveat; §7 heading updated (§7.1 executed, §7.2/§7.3 open). The chat-proposed daily `05:00` slot was **rejected** in favour of the documented `sat 04:30`, because `pbs-store-verify` runs `*-*-01 04:00` and a daily GC would have collided with tomorrow's monthly verify. Rollback: `datastore update pbs-store --delete gc-schedule`. Nothing reclaimed yet — first run 2026-11-07, and the reclaim proof is owed then | issue #126; `proxmox-backup-manager garbage-collection list` + `status pbs-store --output-format json` read back at 21:25Z; §7.1 executed record |
