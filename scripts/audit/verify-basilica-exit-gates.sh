@@ -30,7 +30,6 @@ set -euo pipefail
 REPO_ROOT="/opt/jol/repos"
 HUB="$REPO_ROOT/jol-hub"
 DEPLOY="$REPO_ROOT/jol-deploy"
-INFRA="$REPO_ROOT/jol-infrastructure"
 
 WAVE_FILTER=""
 VERBOSE=0
@@ -104,15 +103,11 @@ assert_absent() {
   fi
 }
 
-# Check a command succeeds (for runtime checks).
-assert_command() {
-  # $1=label  $2=command  $3=skip_reason_if_no_host
-  if eval "$2" >/dev/null 2>&1; then
-    pass "$1"
-  else
-    warn "$1 — command failed: $2"
-  fi
-}
+# NOTE (removed 2026-10-31): an `assert_command()` helper for runtime checks lived
+# here, but no check ever called it — every runtime assertion in this script is an
+# explicit `skip`, so the function was dead code (shellcheck SC2317). Re-add it only
+# together with a caller; runtime gates must stay `skip`-with-reason until a
+# host-side runner exists.
 
 should_run_wave() {
   local wave="$1"
