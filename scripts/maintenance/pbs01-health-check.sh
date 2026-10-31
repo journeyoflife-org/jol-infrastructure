@@ -117,21 +117,41 @@ fi
 # (`datastore update <store> --gc-schedule <calendar>`). Verified on-host 2026-10-23.
 # There is also no --max-used-percent on a datastore in 4.2, which is why gate 2
 # must exist here instead.
+# ⚠ FIXED 2026-10-31 (issue #129, finding F-5): this gate used to read `pending-bytes`
+#   from `garbage-collection status` alone and alert only above the threshold. That field
+#   is the tally OF THE LAST GC RUN: on a datastore where GC has never completed the whole
+#   payload is zeros (measured on pbs01 after prunes had already deleted groups — each VMID
+#   holds exactly 7 under keep-daily=7), so the gate printed "GC pending-bytes: 0 GiB" and the
+#   run read GREEN. An absence of measurement rendered as a number — gate 10's dead branch and
+#   gate 13's decay-to-zero in a third costume. `status` carries NO timestamp at all, so it
+#   cannot answer "did GC ever run"; `list` does (last-run-state / last-run-endtime / duration),
+#   so the question is asked of the endpoint that can answer it. "never ran" is WARN (the
+#   schedule exists, first run pending) and "ran, nothing pending" stays a plain 0 GiB info —
+#   the two states must not be conflated in either direction.
 if have proxmox-backup-manager; then
-    GC_SCHED="$(proxmox-backup-manager garbage-collection list --output-format json 2>/dev/null | grep -o "\"schedule\":\"[^\"]*\"" | head -1)"
-    if [[ -z "$GC_SCHED" ]]; then
-        warn "garbage collection is NOT scheduled on ${DATASTORE} — orphaned chunks from prunes are never reclaimed (see runbook §7.1 to schedule)"
+    GC_LIST_JSON="$(proxmox-backup-manager garbage-collection list --output-format json 2>/dev/null || true)"
+    if [[ -z "$GC_LIST_JSON" ]]; then
+        alert "cannot read garbage-collection list for ${DATASTORE} — GC state UNVERIFIED (not assumed scheduled)"
     else
-        info "GC schedule: ${GC_SCHED}"
-    fi
-    PENDING="$(proxmox-backup-manager garbage-collection status "$DATASTORE" --output-format json 2>/dev/null | grep -o '"pending-bytes":[0-9]*' | grep -oE '[0-9]+$' || echo '')"
-    if [[ -z "$PENDING" ]]; then
-        alert "cannot read GC pending-bytes for ${DATASTORE} — orphan growth UNVERIFIED"
-    else
-        PENDING_G=$(( PENDING / 1073741824 ))
-        info "GC pending-bytes: ${PENDING_G} GiB"
-        (( PENDING_G > GC_PENDING_ALERT_G )) && \
-            alert "${PENDING_G} GiB of orphaned chunks pending GC (> ${GC_PENDING_ALERT_G} GiB) — schedule/run garbage collection"
+        GC_SCHED="$(printf '%s' "$GC_LIST_JSON" | grep -o "\"schedule\":\"[^\"]*\"" | head -1)"
+        if [[ -z "$GC_SCHED" ]]; then
+            warn "garbage collection is NOT scheduled on ${DATASTORE} — orphaned chunks from prunes are never reclaimed (see runbook §7.1 to schedule)"
+        else
+            info "GC schedule: ${GC_SCHED}"
+        fi
+        LAST_STATE="$(printf '%s' "$GC_LIST_JSON" | grep -o "\"last-run-state\":\"[^\"]*\"" | head -1 | cut -d'"' -f4)"
+        PENDING="$(proxmox-backup-manager garbage-collection status "$DATASTORE" --output-format json 2>/dev/null | grep -o "\"pending-bytes\":[0-9]*" | grep -oE '[0-9]+$' || echo '')"
+        if [[ -z "$LAST_STATE" ]]; then
+            # No GC has ever completed here, so there is no measurement to report.
+            warn "no garbage collection has EVER run on ${DATASTORE} — pending-bytes is not a measurement yet (orphan growth UNVERIFIED until the first scheduled run reports a state)"
+        elif [[ -z "$PENDING" ]]; then
+            alert "cannot read GC pending-bytes for ${DATASTORE} — orphan growth UNVERIFIED"
+        else
+            PENDING_G=$(( PENDING / 1073741824 ))
+            info "GC last-run-state=${LAST_STATE}; pending-bytes: ${PENDING_G} GiB"
+            (( PENDING_G > GC_PENDING_ALERT_G )) && \
+                alert "${PENDING_G} GiB of orphaned chunks pending GC (> ${GC_PENDING_ALERT_G} GiB) — run garbage collection now (last run: ${LAST_STATE})"
+        fi
     fi
 else
     probe_missing proxmox-backup-manager 3

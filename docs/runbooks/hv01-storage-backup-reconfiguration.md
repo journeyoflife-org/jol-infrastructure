@@ -567,6 +567,14 @@ proxmox-backup-manager datastore show pbs-store --output-format json       # gc_
 > `removed-bytes` stays blank and watchdog gate 3 stays blind (F-5 above). Verify after that run with
 > `garbage-collection list` (`last-run-state OK`, `removed-bytes` non-zero) and
 > `/var/log/jol-pbs01/<date>-health.log` showing no `WARN: garbage collection is NOT scheduled`.
+> ✅ **F-5 CLOSED 2026-10-31T21:42Z (issue #129)** — gate 3 no longer presents a non-measurement as
+> health: it asks `garbage-collection list` for `last-run-state`, WARNs `no garbage collection has
+> EVER run … orphan growth UNVERIFIED`, and CRITICALs when `list` cannot be read at all (previously
+> that failure path printed "NOT scheduled", a wrong conclusion drawn from a failed query). Proven by
+> fixture red/green (`5 passed, 10 failed` on `main` vs `15 passed, 0 failed` on the fix) and live on
+> pbs01 (installed sha `1036796f557d…` == repo, new WARN emitted, `alerts=0`/`rc=0` — a WARN is not a
+> CRITICAL, and the workstation pull signatures only CRITICAL lines, so no alert-set change). The
+> reclaim proof is still owed on 2026-11-07.
 
 **Window choice**: Saturday 04:30 local — after the nightly 03:00 prune so garbage exists to collect, off
 the monthly verify path (`*-*-01 04:00:00`), and outside the 02:00 vzdump and 03:45 archive pushes.
