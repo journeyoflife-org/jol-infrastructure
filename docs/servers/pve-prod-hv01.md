@@ -167,8 +167,10 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
   `hv01-config-backup.sh`), so the only custody store for the value is Vaultwarden and rotation does
   not strand any code path here.
 - **Still open (unchanged)**: GC's first real run is 2026-11-07 (reclaim proof owed), no off-site
-  remote sync, mail alert transport dead, no node_exporter/netdata on this host, and vm/101 has never
-  been restore-drilled (vm/100 ✅ 2026-10-31T21:58Z, vm/102 ✅ 2026-10-22).
+  remote sync, mail alert transport dead, no node_exporter/netdata on this host. Restore coverage is
+  now complete for the estate: vm/100 ✅ 2026-10-31T21:58Z, vm/101 ✅ 2026-11-01T22:41Z,
+  vm/102 ✅ 2026-10-22, and the negative-encryption gate passed for the first time on 2026-11-01
+  (issue #135, evidence §10).
 
 **Fixed 2026-10-31 23:05Z — issue [#124](https://github.com/journeyoflife-org/jol-infrastructure/issues/124)**
 
@@ -226,8 +228,9 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 > fresh, NTP Normal. ✅ vm/100 restore-drilled 2026-10-31T21:58Z (issue #131) and GC is now
 > **scheduled** (issue #126, first run 2026-11-07 04:30) — scheduled ≠ proven: the reclaim evidence
 > (`last-run-state OK`, `removed-bytes` non-zero) is owed on 2026-11-07. ⚠ NOT verified — the
-> restore-without-key negative test, a vm/101 drill, and the `pbs01.pw`/`enc` permission pair (not
-> re-read this session; the files are secret material and stay location-only).
+> restore-without-key negative test ✅ 2026-11-01T22:41Z and a vm/101 drill ✅ the same window
+> (issue #135, evidence §10) — leaving only the `pbs01.pw`/`enc` permission pair not re-read this
+> session (secret material, location-only).
 
 ```text
 □ HDD present:          lsblk -o NAME,SIZE,MOUNTPOINT,MODEL /dev/sda
@@ -259,12 +262,22 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 □ Evidence replicated:  pbs list → host/pve-prod-hv01 with hv01-archive.pxar
 □ Retention + GC:       pbs01 pbs-store-prune covers ns/jol-hv01; datastore usage < 80 %
 □ Negative test:        restore WITHOUT the encryption key → MUST fail
+                        ✅ PASSED 2026-11-01T22:41Z (issue #135): `/etc/pve/priv/storage/pbs01.enc`
+                        moved aside (copy kept at 600 in the prechange dir), identical qmrestore
+                        refused with rc=255 `encryption configured ('47:d6:12:27:…') but no
+                        encryption key file found!` — refused at config extraction, before any
+                        write. Method note so nobody repeats my ambiguity: this proves the key is
+                        MANDATORY; it is not a wrong-key test. Key restored and re-proven by a
+                        second successful restore at 22:42:27Z (rc=0), then cmp-equivalent stat
+                        (600 root:www-data 255) and `pvesm status` → active.
 □ Restore drill:        qmrestore of VMID 100 to scratch VMID 199 (NIC detached),
                         boot, service check, destroy 199 — logged in
                         docs/compliance/evidence/restore-test-<vmid>-<date>.log
                         ✅ vm/100 PASSED 2026-10-31T21:58Z (issue #131, evidence §9a: 107 GB in
                         137.8 s @743 MB/s, agent 80 s, destroyed clean, 4 min 48 s end-to-end);
-                        ✅ vm/102 2026-10-22; ⚠ vm/101 never drilled
+                        ✅ vm/102 2026-10-22; ✅ vm/101 2026-11-01T22:41Z (issue #135 — 53.7 GB in
+                        10.3 s @4.97 GB/s, 91 % zeroes, hostname proven `mcp-prod-lt01` via guest
+                        exec, 0 LV residue)
 □ Credential fields in  tar xzOf <archive> --wildcards '*/qemu-server/*.conf' \
    the config archive      | grep -cE '^cipassword: [^<]'                    → 0 (F-3 gate,
                         enforced by the script itself since 2026-11-01: non-zero ⇒ refuse publish)

@@ -387,3 +387,63 @@ the hypervisor only, which already holds the cleartext-equivalent config file. W
 does remove is persistence: no shell history, no file, no log, no chat, no ticket, no repo.
 Stated limit, not hidden: a root-writable script that prompts for a secret is itself a tamper
 target; the control is 750 root:root plus the §3d repo↔host digest pair, i.e. detection.
+
+================================================================================
+§10 22:38:54Z-22:43Z - vm/101 restore drill PASSED + negative-encryption test
+       PASSED (issue #135). Also: the fleet's first proof that client-side crypto is
+       real rather than configured.
+================================================================================
+
+Pre-checks: newest group `vm/101/2026-10-31T00:00:10Z` (today's scheduled run); VMID 199 free;
+`pve/data` 5.93 %; key file `600 root:www-data 255` mtime 2026-10-21 19:51:16; `pbs01 active`;
+no running tasks. Window chosen ~80 min before the 02:00 nightly and ~3 h before the monthly
+verify (Nov 1 04:00), because phase 2 removes the key file temporarily.
+
+PHASE 1 — drill with the key present (expect SUCCESS):
+  qmrestore pbs01:backup/vm/101/2026-10-31T00:00:10Z 199 --storage local-lvm --unique 1
+    restore image complete (bytes=53687091200, duration=10.30s, speed=4969.13MB/s)
+    drill_rc=0        # 91 % of the volume were zeroes => dedup + decryption proven
+  qm set 199 --delete net0  ->  net0_lines_in_199_conf=0   (BEFORE any boot; the clone still
+                       carries 10.40.40.11 while mcp-prod-lt01 is running)
+  qm start 199        ->  drill_agent=yes after 80s
+  qm guest cmd 199 get-fsinfo  ->  "dev": "/dev/sda15", "dev": "/dev/sda16"  (real block devices)
+  qm guest exec 199 -- /bin/hostname  ->  "out-data" : "mcp-prod-lt01\n"
+                       # the decisive identity proof: the RIGHT disk came back, not just a booting
+                       # kernel — a restore of the wrong group would also pass an agent ping
+  live tenant untouched during the drill: `qm status 101` -> status: running
+  qm stop 199 ; qm destroy 199 --purge  ->  vm199_conf=no  lv residue=0  pool 5.93 % unchanged
+
+PHASE 2 — negative-encryption test, key moved aside (expect FAILURE):
+  cp -p /etc/pve/priv/storage/pbs01.enc <prechange>/  (600 root:www-data 255) then mv the live
+  file away; `test -f $KEY` -> no. Window begins.
+  timeout 300 qmrestore pbs01:backup/vm/101/2026-10-31T00:00:10Z 199 …
+    negtest_rc=255            # non-zero is the PASS condition
+    "Could not extract backed up config: encryption configured
+     ('47:d6:12:27:36:9f:b1:95:…:35:34:b9') but no encryption key file found!"
+    "error before or during data restore … VM 199 state is NOT cleaned up."
+                       # The refusal is at config-extraction, i.e. before any data write, and it
+                       # names the key digest the group expects — proof that every group is
+                       # genuinely bound to that key. This is the gate §6 carried as `□` since
+                       # 2026-08-01 and the one positive control that makes every earlier
+                       # "decrypted successfully" statement meaningful.
+  Key restored by the script's cleanup path; verified: mode 600, owner root:www-data, 255 bytes,
+  `pvesm status` -> `pbs01 pbs active`, and the content query lists vm/101 again.
+  Functional proof that the restored key still works (not just stat-equivalence): a SECOND
+  qmrestore of the same group at 22:42:27Z succeeded — 53,687,091,200 bytes in 10.78 s at
+  4748 MB/s, rc=0. Then destroyed: qm list = 100/101/102, vm-199 LV count 0, pool 5.93 %.
+
+Two defects in my own harness, recorded because they are the interesting kind:
+  1. `cmp "$PRE/pbs01.enc" "$KEY"` printed DIFFERS after the restore — a false alarm from my own
+     script: the cleanup used `mv`, which CONSUMED the backup copy, so cmp compared against a
+     nonexistent file. The key was intact (proven by the successful second restore). A check that
+     compares a file it has already moved cannot pass; the correct form is `cp` back and then
+     compare, or compare a copy list kept separately.
+  2. `qm destroy 199 --purge --skip-locked` — `--skip-locked` is not a `qm destroy` option, so the
+     command printed its usage and exited without destroying: VMID 199 and 2 LVs were left behind
+     until a follow-up `qm stop; qm destroy 199 --purge` cleaned them (verified: conf gone, 0 LVs).
+     Same class again: a cleanup command that silently does nothing looks like a completed cleanup.
+
+Final state: pbs01 active, three production VMs running, no scratch residue, key file untouched in
+content/mode/owner. The 2026-11-01 02:00 nightly is the next scheduled proof that the key removal
+window left nothing broken (check `pvesh get /cluster/backup/hv01-nightly-pbs` next-run + a new
+snapshot per VMID, and that the pbs01 watchdog stays clean).

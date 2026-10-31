@@ -67,12 +67,24 @@ UFW: default deny incoming, allow outgoing, enabled at boot (2026-08-03).
 - The bare repo `/opt/jol/git/jol-mcp-servers.git` and `/etc/jol-mcp/mcp.env` are **no longer
   single copies** — both are inside the VMID 101 disk image that is now replicated off-host and
   client-side encrypted.
-- ⚠ **Restore is drilled for VMID 102 only** (2026-10-22, scratch VMID 199). No vm/101-specific
-  restore has been performed: `⚠ UNVERIFIED — manual check required` before this group's RTO claim.
+- **Restore drill PASSED for THIS VMID on 2026-11-01T22:41Z** (issue #135): `qmrestore` of
+  `pbs01:backup/vm/101/2026-10-31T00:00:10Z` → scratch VMID 199, 53,687,091,200 bytes in 10.3 s at
+  4.97 GB/s with **91 % zeroes** (dedup + decryption with the stored key both proven by a real
+  write), `net0` deleted **before** the first boot (the clone still carries `10.40.40.11` while this
+  VM is live), guest agent responsive at 80 s, `get-fsinfo` returned real block devices and
+  `qm guest exec 199 -- /bin/hostname` answered **`mcp-prod-lt01`** — the identity check that proves
+  the correct disk came back, not merely a booting kernel. Then `destroy --purge`: `vm199_lv_count=0`,
+  thin pool unchanged at 5.93 %, live tenant `qm status 101` → running throughout.
+- **The same window proved the encryption is real**: with `/etc/pve/priv/storage/pbs01.enc` moved
+  aside, the identical restore was **refused** (`rc=255`, `encryption configured … but no encryption
+  key file found!`) — the fleet's first pass of the gate carried as `□` since 2026-08-01. Every
+  earlier “decrypted successfully” claim depended on that key being mandatory; now it is measured.
+  The key was restored and re-proven by a second successful restore minutes later (`rc=0`).
 - Still open: the 3-2-1 "one off-site" leg (pbs01 `remote list` → empty, verified 2026-10-31);
   `/var/log/jol-mcp/audit.jsonl` inherits the same single-site exposure.
 
-RPO: 24 h (met) | RTO: 4 h (target, not drilled for this VMID).
+RPO: 24 h (met) | RTO: 4 h — restore path measured at **~10 s of data movement** for this VMID
+(plus boot/agent ~80 s) on 2026-11-01; the 4 h figure is now a wide upper bound, not an estimate.
 
 **History**: on 2026-10-21 this page claimed a nightly PBS backup that did not exist; the
 same-day inspection found no datastore on the hypervisor and a `jobs.cfg` section the scheduler
@@ -134,6 +146,7 @@ parser rejected. Recorded then, closed 2026-10-22 by `docs/runbooks/hv01-storage
 | 2026-08-18 | **M3 remediation** (P2 gate finding 2026-08-17): snapshot `pre-m3-fix-20260818-0014`; `/etc/jol-mcp/mcp.env` backed up (`.bak.20260818-0014`, 640 root:mcp-svc preserved) + `JOL_MCP_GIT_REPO_ROOT=/opt/jol/repos` added; inspectable work-tree clone provisioned at `/opt/jol/repos/jol-mcp-servers` (from `/opt/jol/git/jol-mcp-servers.git`, HEAD c226602, owned `mcp-svc:mcp-svc` — git safe.directory requires owner == invoking user); `jol-git-server` restarted; end-to-end MCP `tools/call git_status` → "Working tree clean" + audit.jsonl `Success`; re-gate 14/14 PASS (guest-exec-mcp-prod-lt01-20260818 log, jol-compliance audit-evidence) | qm guest exec session 2026-08-18 |
 | 2026-10-22 | VMID 101 included in the new hypervisor backup job `hv01-nightly-pbs` (first manual `vzdump` OK, 54 GB group in ns `jol-hv01`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §17 |
 | 2026-10-31 | **Backup baseline re-verified read-only; "Backup Enabled: NO (2026-10-21)" corrected to YES.** 9 consecutive scheduled OK nightlies, newest vm/101 group `2026-10-31T00:00:10Z`; vm/101 restore drill still NOT performed (the 2026-10-22 drill used vm/102) | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
+| 2026-11-01 22:41Z | **vm/101 restore drill PASSED (issue #135)** — `vm/101/2026-10-31T00:00:10Z` → scratch VMID 199, `net0` removed before boot, agent at 80 s, guest hostname confirmed as `mcp-prod-lt01`, destroyed clean with 0 LV residue; and the **negative-encryption test passed** for the first time in the fleet (key file aside → restore refused with `no encryption key file found`, rc=255; key restored and re-proven by a second successful restore). The bare repo, `mcp.env` and `audit.jsonl` are therefore now known-recoverable, not assumed | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §10 |
 
 ## Maintenance Notes
 
