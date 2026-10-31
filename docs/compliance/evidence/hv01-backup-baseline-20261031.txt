@@ -342,3 +342,48 @@ Test artifacts left on pve (volatile, no secrets, values never printed):
   /tmp/cfgbk-nostrip.sh, /tmp/nostrip.out, /tmp/empty-conf.tar.gz, /tmp/emptystage/etc,
   /var/tmp/jol-cfgtest{,-old,-neg} (each a 132K test archive). Production dir still holds only
   pve-config-20261018 / 20261021 / 20261025.tar.gz; cron entry unchanged (0 3 * * 0).
+
+================================================================================
+§9d 00:19Z-00:20Z - rotation helper installed (issue #128); a measurement of mine
+      was wrong and is withdrawn
+================================================================================
+
+State check before adding anything (all read-only, no values printed):
+  stat -c '%y' /etc/pve/qemu-server/10{0,1,2}.conf -> all 2026-10-31 02:00:1x (+0200)
+  qm listsnapshot <v> | grep -c pre-f3            -> 0, 0, 0
+  grep -m1 ^cipassword: <conf> | sha256sum | cut -c1-12
+                                                  -> e21beb72c90d / 89e8fb724c6d / afb69757ac6e
+  (truncated digests of the LINES, so a later rotation is provable without ever handling
+   the credential; they are not the values and are not reversible)
+=> Option A was NOT performed. The rotation stays the operator's typed step.
+
+Installed: pve:/usr/local/bin/jol-rotate-cipassword.sh
+  sha256 6e322a7bf27d3204… == repo scripts/maintenance/pve-rotate-cipassword.sh
+  mode 750 root:root, bash -n OK, find scripts/ -name '*.sh' -exec shellcheck -x {} + -> rc=0
+  Behaviour: [[ ! -t 0 ]] -> exit 1 (mechanical human gate) | qm snapshot per VMID before any
+  change, abort if it fails | read -rs + confirm | qm set --cipassword | digest-after must
+  differ | re-runs hv01-config-backup.sh with DEST_DIR=/var/tmp/jol-rotate-verify-<ts> |
+  prints qm terminal proof + rollback order (previous value via the helper, else
+  $PRE_DIR/<v>.conf.before, else qm rollback which needs the VM stopped).
+  Refusal test from the installed path, stdin=/dev/null:
+     "REFUSED: no controlling terminal. This rotation is operator-only (§0.1)." rc=1
+     snapshots created by the refusal: qm listsnapshot 100 | grep -c pre-f3 -> 0
+     prechange dirs matching *cipassword -> 0
+     no-args        -> "usage: sudo jol-rotate-cipassword.sh <vmid> …"           rc=2
+     VMID 999       -> "VMID 999 has no config on this node"                     rc=2
+
+WITHDRAWN CLAIM (my own, 00:05Z comment on #128): "qm set --help on PVE 9.2.10 lists no
+cipassword (measured, grep -c cipassword -> 0)". qm set --help IS NOT a PVE 9 verb:
+  $ qm set --help
+  Unknown option: help
+  400 unable to parse option
+  qm set <vmid> [OPTIONS]                      # 72 bytes total
+so the grep counted the absence of a help page. Verified properly instead, at the source:
+  grep -c prompt /usr/share/perl5/PVE/CLIHandler.pm  -> 0
+  ls -l shows the file present (20309 bytes, Aug 4 13:42)
+Conclusion unchanged, reasoning corrected: PVE 9's CLI offers no interactive prompt, so the
+value must reach qm set as an argument; it is therefore transiently visible in argv to root on
+the hypervisor only, which already holds the cleartext-equivalent config file. What the design
+does remove is persistence: no shell history, no file, no log, no chat, no ticket, no repo.
+Stated limit, not hidden: a root-writable script that prompts for a secret is itself a tamper
+target; the control is 750 root:root plus the §3d repo↔host digest pair, i.e. detection.
