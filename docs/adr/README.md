@@ -9,3 +9,4 @@
 | [ADR-005](ADR-005-gitops-workflow.md) | GitOps Workflow | Accepted | 2025-02-15 |
 | [ADR-006](ADR-006-monitoring-stack.md) | Monitoring Stack (Prometheus + Grafana + CloudWatch) | Accepted | 2025-03-01 |
 | [ADR-007](ADR-007-descope-jol-core.md) | De-scope `jol-core` from Tier 0 | Accepted | 2026-09-19 |
+| [ADR-008](ADR-008-pbs01-admin-ssh.md) | Admin SSH Reachability to the Backup Server (pbs01) | Proposed | 2026-10-22 |

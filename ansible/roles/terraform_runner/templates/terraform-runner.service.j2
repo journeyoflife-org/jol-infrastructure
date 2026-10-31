@@ -1,0 +1,47 @@
+# =============================================================================
+# terraform-runner.service — hardened GitHub Actions self-hosted runner unit
+# Hardening baseline mirrors AGENTS.md §2.3 (MCP units): ProtectSystem=strict,
+# NoNewPrivileges, PrivateTmp, kernel/control-group protections, native syscalls.
+# Managed by the terraform_runner Ansible role; do not edit by hand.
+# =============================================================================
+[Unit]
+Description=JOL Terraform self-hosted GitHub Actions runner ({{ terraform_runner_tree | default('church') }} tree, {{ actions_runner_mode }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ terraform_runner_user }}
+Group={{ terraform_runner_group }}
+WorkingDirectory={{ terraform_runner_home }}
+# Non-secret config; the '-' prefix makes the secrets file optional so the unit
+# still starts (and fails loudly in the wrapper) before runtime secret injection.
+EnvironmentFile={{ terraform_runner_home }}/runner.env
+EnvironmentFile=-{{ terraform_secrets_dir }}/runner.secrets.env
+{% if actions_runner_mode == 'ephemeral' %}
+ExecStart={{ terraform_runner_home }}/run-ephemeral.sh
+{% else %}
+ExecStart={{ terraform_runner_home }}/run.sh
+{% endif %}
+# Ephemeral mode exits after one job; Restart=always mints a fresh JIT runner.
+Restart=always
+RestartSec=5
+
+# --- Security hardening (all mandatory) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+UMask=0027
+ReadWritePaths={{ terraform_runner_home }}
+
+[Install]
+WantedBy=multi-user.target

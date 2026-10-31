@@ -1,0 +1,21 @@
+# =============================================================================
+# 00_postgres.yml — install PostgreSQL + runtime dependencies
+# Ubuntu 24.04 (noble) ships PostgreSQL 16 by default.
+# python3-cryptography is required by the community.crypto TLS tasks.
+# =============================================================================
+---
+- name: Install PostgreSQL 16 + TLS + Ansible dependencies
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgres_version }}"
+      - "postgresql-client-{{ postgres_version }}"
+      - openssl
+      - python3-cryptography
+    state: present
+    update_cache: true
+
+- name: Enable and start PostgreSQL
+  ansible.builtin.systemd_service:
+    name: postgresql
+    enabled: true
+    state: started

@@ -1,0 +1,44 @@
+# =============================================================================
+# 10_terraform.yml — install Terraform (SHA256-pinned)
+# Mirrors the verified `monitoring` role get_url + checksum pattern.
+# Supply-chain integrity (SOC 2 CC8.1).
+# =============================================================================
+---
+- name: Download Terraform release (SHA-256 verified)
+  ansible.builtin.get_url:
+    url: >-
+      https://releases.hashicorp.com/terraform/{{ terraform_version }}/
+      terraform_{{ terraform_version }}_linux_amd64.zip
+    dest: /tmp/terraform.zip
+    checksum: "sha256:{{ terraform_sha256 }}"
+    mode: "0644"
+
+- name: Extract Terraform binary
+  ansible.builtin.unarchive:
+    src: /tmp/terraform.zip
+    dest: /tmp
+    remote_src: true
+    creates: /tmp/terraform
+
+- name: Install Terraform binary
+  ansible.builtin.copy:
+    src: /tmp/terraform
+    dest: /usr/local/bin/terraform
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+
+- name: Verify installed Terraform version matches pin (drift guard)
+  ansible.builtin.command: /usr/local/bin/terraform version -json
+  register: tf_version_check
+  changed_when: false
+  failed_when: "terraform_version not in tf_version_check.stdout"
+
+- name: Remove Terraform download artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/terraform.zip
+    - /tmp/terraform

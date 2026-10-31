@@ -1,0 +1,57 @@
+# =============================================================================
+# Host variables — tf-runner-prod-01 (VM 206, 10.60.60.31)
+# Self-hosted Terraform / GitHub Actions runner — CHURCH tree (journeyoflife-org).
+# Runs on prox01 (VLAN 60, management). NOTE: secrets NEVER live here —
+# runtime-injected from Vaultwarden only (AGENTS.md §0.1).
+# =============================================================================
+
+# --- Audit watches (host-specific secret material) ---
+# Secret files are created at runtime by the operator, not by Ansible.
+jol_audit_secret_files:
+  - /opt/terraform-runner/secrets/age.key
+  - /opt/terraform-runner/secrets/runner.secrets.env
+
+# --- Application layout ---
+jol_repos_root: /opt/jol/repos
+jol_secrets_dir: /opt/terraform-runner/secrets
+jol_app_state_dir: /opt/terraform-runner/state
+jol_app_log_dir: /var/log/terraform-runner
+
+# No reference repo clones managed by the common role on this host.
+common_repo_clones: []
+
+# --- Service accounts ---
+# The terraform runner account is created by the terraform_runner role.
+jol_service_users: []
+
+# --- Tree segregation (§0.2) ---
+# This runner touches the CHURCH tree ONLY. The marketplace tree (jolarca-dev)
+# is provisioned by a SEPARATE runner in jolarca-infrastructure.
+terraform_runner_tree: church
+
+# --- Firewall (UFW) — sources restricted per trust boundary ---
+# Management VLAN only; the runner initiates outbound to GitHub + Proxmox API.
+ufw_ssh_allowed_sources:
+  - 10.60.60.0/24
+ufw_mgmt_allow_sources:
+  - 10.60.60.0/24
+ufw_http_allowed_sources: []
+ufw_monitoring_allowed_sources:
+  - 10.60.60.0/24
+
+# No Docker on this host — DOCKER-USER chain guard not applicable.
+docker_guard_enabled: false
+
+# --- Monitoring agent ---
+node_exporter_bind_address: "10.60.60.31"
+
+# --- Log shipping (Promtail -> Loki) ---
+promtail_enabled: false
+loki_push_url: "http://loki.monitoring.jol.internal:3100/loki/api/v1/push"
+promtail_log_paths:
+  - /var/log/terraform-runner/*.log
+
+# --- Backup ---
+# VM-level backups via PBS/prox01; qemu-guest-agent enables fs-consistent
+# snapshots. No app-level snapshot cron (state is in the remote backend).
+backup_enabled: true

@@ -1,0 +1,58 @@
+#cloud-config
+# NOTE: line 1 MUST remain the literal `#cloud-config` marker (no leading space).
+# yamllint emits one non-fatal `comments` warning for it — an accepted cloud-init
+# false positive (the non-strict pre-commit hook returns rc=0). Coverage of the
+# rest of this file stays active so real errors are still caught.
+# =============================================================================
+# tf-runner-prod-01 — base OS bootstrap (Proxmox cloud-init userdata)
+# =============================================================================
+# Applied at VM CREATION time on prox01 (qm ... --cicustom user=cloud-init-userdata.yaml).
+# Base OS ONLY. All security hardening + terraform/sops/runner install is applied
+# afterwards by the `terraform_runner` Ansible role (single source of truth):
+#   cd ansible/ && ansible-playbook playbooks/provision-terraform-runner.yml
+#
+# Secrets (SSH keys, API tokens) are injected via Proxmox ciuser / Vaultwarden —
+# NEVER committed here (AGENTS.md §0.1). Tree: Church Platform (/opt/jol) only;
+# the marketplace tree uses a SEPARATE runner in jolarca-infrastructure (§0.2).
+# =============================================================================
+hostname: tf-runner-prod-01
+fqdn: tf-runner-prod-01.jol.internal
+timezone: Europe/Vilnius
+locale: en_US.UTF-8
+
+package_update: true
+package_upgrade: true
+packages:
+  - qemu-guest-agent      # fs-consistent PBS snapshots
+  - chrony                # NTP synchronisation (SOC 2 CC7.2)
+  - curl
+  - git
+  - jq
+  - unzip
+  - ca-certificates
+  - gnupg
+  - ufw
+  - fail2ban
+  - auditd
+  - aide
+
+users:
+  - name: jol-admin
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    # Public key injected by Proxmox cloud-init (ciuser) — never hardcode here.
+    ssh_authorized_keys: []
+
+ssh_pwauth: false
+disable_root: false        # root key-only; hardened by the `ssh` role post-boot
+
+runcmd:
+  - systemctl enable --now qemu-guest-agent
+  - systemctl enable --now chrony
+  - systemctl enable --now auditd
+
+final_message: >-
+  cloud-init base complete. Next: run
+  ansible-playbook playbooks/provision-terraform-runner.yml --limit tf_runner

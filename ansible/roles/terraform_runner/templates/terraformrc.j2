@@ -1,0 +1,14 @@
+# =============================================================================
+# .terraformrc — Terraform CLI configuration (managed by terraform_runner role)
+# plugin_cache_dir  -> consistent, pinned providers reused across runs.
+# disable_checkpoint -> no HashiCorp telemetry egress.
+# Provider VERSIONS are pinned in each config's required_providers block and
+# committed .terraform.lock.hcl (reproducible provider hashes, SOC 2 CC8.1).
+# =============================================================================
+plugin_cache_dir = "{{ terraform_plugin_cache_dir }}"
+
+disable_checkpoint = true
+
+provider_installation {
+  direct {}
+}

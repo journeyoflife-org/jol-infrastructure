@@ -1,0 +1,917 @@
+EVIDENCE — pve-prod-hv01 storage & backup reconfiguration, phase 1–3
+=====================================================================
+Date (local/UTC):  2026-10-21 15:22 EEST (UTC+03) / 12:22 UTC
+Host:              pve-prod-hv01 (10.60.60.20), Proxmox VE 9.2, uptime 10 weeks
+Operator:          jol-admin (single owner; four-eyes = review against the issue)
+Method:            read-only inspection over SSH key auth, then DRY_RUN preview,
+                   then DRY_RUN=0 apply. All changes carry timestamped backups.
+Secrets:           no credential material in this file. Filesystem UUIDs are
+                   truncated to their first 8 chars (identifiers, not secrets).
+                   PBS token/encryption key were NOT read, copied, or transmitted
+                   (Tier-1 forbidden list); datastore registration is an operator
+                   action performed in the PVE Web UI.
+
+1. PRE-CHANGE GROUND TRUTH (read-only)
+--------------------------------------
+$ lsscsi
+  [3:0:0:0] disk  ATA      ST1000LM024 HN-M  0001  /dev/sda
+  [N:0:0:1] disk  ADATA LEGEND 800__1                /dev/nvme0n1
+$ smartctl -i /dev/sda
+  Device Model: ST1000LM024 HN-M101MBB | Rotation Rate: 5400 rpm
+  Form Factor: 2.5 inches | User Capacity: 1.00 TB | ATA-8
+$ smartctl -H /dev/sda
+  SMART overall-health self-assessment test result: PASSED
+$ smartctl -A /dev/sda   (subset)
+   5 Reallocated_Sector_Ct .... 0
+  12 Power_Cycle_Count ....... 2482
+   9 Power_On_Hours .......... 10378
+ 197 Current_Pending_Sector .. 0
+ 198 Offline_Uncorrectable ... 0
+ 199 UDMA_CRC_Error_Count .... 1
+$ smartctl -l error /dev/sda
+  SMART Error Log Version: 1 — No Errors Logged
+$ dmesg | grep -iE 'ata4|sda'   (the 2026-10-21 hot-removal + reconnection)
+  ata4: SATA link down (SStatus 0 SControl 300)
+  ata4.00: detaching (SCSI 3:0:0:0)
+  Buffer I/O error on dev sda2, logical block 69238784, lost sync page write
+  JBD2: I/O error when updating journal superblock for sda2-8
+  ata4: SATA link up 6.0 Gbps (SStatus 133 SControl 300)
+  ata4.00: Model 'ST1000LM024 HN-M101MBB', rev '2BA30001',
+           applying quirks: brokenfpdmaaa nolpm
+  sda: sda1 sda2
+$ findmnt -t ext4
+  /mnt/hdd-iso     /dev/sda1  ext4  rw,noatime
+  /mnt/hdd-archive /dev/sda2  ext4  rw,noatime
+$ cat /etc/fstab | grep hdd        (BEFORE — no nofail, no timeouts)
+  1094ed1c… /mnt/hdd-iso     ext4 defaults,noatime 0 2
+  39c5baab… /mnt/hdd-archive ext4 defaults,noatime 0 2
+$ tune2fs -l /dev/sda1 | egrep 'state|mount count|interval|Last checked'
+  Filesystem state: clean | Maximum mount count: -1 | Check interval: 0 (<none>)
+  Last checked: Wed Apr 22 19:28:17 2026      (same for sda2)
+$ grep -A6 'dir: hdd-iso' /etc/pve/storage.cfg
+  path /mnt/hdd-iso
+  content backup,vztmpl,iso
+  nodes pve-prod-hv01
+$ pvesm status          (during the unplug window, mount absent)
+  hdd-iso dir active 98497780 23232536 70215696 23.59%      == identical to 'local'
+  stat -c '%d' /mnt/hdd-iso  → 64513 ; stat -c '%d' / → 64513
+  → PVE reported the storage healthy while it resolved to the NVMe root fs,
+    and had auto-created dump/ + template/ there (mtime 2026-10-21 13:06).
+$ cat /etc/pve/jobs.cfg
+  vzdump: job-vm100-nightly
+  schedule 30 3 * * *  | storage local | vm 100 | compress zstd | mode snapshot
+  prune-backups keep-last=3 | mailnotification failure | enabled 1
+$ pvesh get /cluster/backup --output-format json
+  []
+  /etc/pve/jobs.cfg line 2 — ignore config line: schedule 30 3 * * *
+  /etc/pve/jobs.cfg line 9 (skip section 'job-vm100-nightly'):
+      missing value for required option 'schedule'
+  Use of uninitialized value $type in hash element
+      at /usr/share/perl5/PVE/Job/Registry.pm line 73.
+  → the job is NOT in the scheduler registry: no backup job has run.
+$ ls -l /var/lib/vz/dump/
+  vzdump-qemu-100-2026_08_12-23_26_27.vma.zst   14G  (mtime 2026-08-12 23:28)
+  vzdump-qemu-100-2026_08_12-23_26_27.log/.notes
+  → only artifact of any kind; VMIDs 101/102 have never been dumped; it sits on
+    the same device (VG pve / NVMe) as the VM it protects.
+$ ls /mnt/hdd-iso/dump/ → empty (created 2026-07-30, never used)
+$ ls -l /mnt/hdd-archive/config-backup/
+  pve-config-20260920.tar.gz … pve-config-20261018.tar.gz  (143K each, weekly Sun 03:00)
+$ ls /mnt/hdd-archive/health/ | wc -l → ~90 daily logs, newest 2026-10-21 06:00
+$ cat /etc/cron.d/jol-config-backup
+  0 3 * * 0 root tar czf /mnt/hdd-archive/config-backup/pve-config-$(date +%Y%m%d).tar.gz \
+      /etc/pve /etc/network/interfaces /etc/fstab /etc/lvm/lvm.conf /etc/smartd.conf \
+      /etc/sysctl.d/ /etc/ufw/ /etc/chrony/ /etc/fail2ban/ 2>/dev/null && find … -mtime +30 -delete
+  → while the HDD is absent this fails with no exit code, no mail, no alert.
+$ grep -h '^scsi0\|^ide2' /etc/pve/qemu-server/*.conf
+  100/101/102: scsi0 local-lvm:vm-10x-disk-0 ; ide2 local-lvm:vm-10x-cloudinit
+  → no VM data on the HDD at any point.
+$ pvs; vgs; parted /dev/nvme0n1 print free
+  /dev/nvme0n1p3 pve lvm2 a-- <930.00g  PFree 0 ; 1000GB–2000GB Free Space
+$ cat /etc/pve/priv/storage → No such file or directory (no PBS datastore)
+$ pvesm status (list) → hdd-iso, local, local-lvm only; no 'pbs' type entry
+$ TCP 10.10.10.30:8007 from hv01 → reachable; PBS API answers (unauthenticated
+  /api2/json/version → "authentication failed") — transport OK, pbs01 nftables
+  already permits 8007/tcp from 10.60.60.0/24.
+$ ls /etc/pve/... (playbooks) → no Ansible play targets the 'hypervisors' group;
+  hv01 host config is hand-maintained (drift risk, same class as MCP finding M3).
+
+2. CHANGES APPLIED (DRY_RUN=0, script scripts/maintenance/hv01-storage-baseline.sh)
+-----------------------------------------------------------------------------------
+pre-change copies: /mnt/hdd-archive/system/prechange-20261021-152255/
+                   (fstab, storage.cfg, jobs.cfg, cron.d/jol-config-backup)
+                   /etc/fstab.bak.20261021-152255
+a) /etc/fstab — both HDD lines now:
+   defaults,noatime,nofail,x-systemd.mount-timeout=10s,x-systemd.device-timeout=10s 0 2
+   verify: systemctl daemon-reload → 'mount -a' rc=0; findmnt still shows
+           /dev/sda1 → /mnt/hdd-iso, /dev/sda2 → /mnt/hdd-archive
+   effect: a failed/absent HDD can no longer block boot of the hypervisor.
+b) PVE storage role: pvesm set hdd-iso --content iso,vztmpl
+   storage.cfg now:  content vztmpl,iso   (backup capability removed)
+   verify: pvesm status → hdd-iso dir active 411725224 609532 390127788 0.15%
+           (393 GB — the HDD again, not the 93 GB NVMe root fs)
+   effect: no vzdump or upload can silently target the single-copy HDD or fall
+           back to '/' — the fake-backup vector is closed.
+c) ext4 integrity policy: tune2fs -c 30 -i 180d on sda1 and sda2
+   verify: "Setting maximal mount count to 30",
+           "Setting interval between checks to 15552000 seconds" (180 d)
+d) Forced offline check of both partitions (hot-removal had produced JBD2 I/O
+   errors, so the data was untrusted until this ran):
+   umount /mnt/hdd-iso  && e2fsck -f -p /dev/sda1 → rc=0
+     /dev/sda1: 17/26214400 files, 2078677/104857600 blocks — no errors
+   umount /mnt/hdd-archive && e2fsck -f -p /dev/sda2 → rc=0
+     /dev/sda2: 111/34799616 files, 2465562/139198464 blocks — no errors
+   remount: both back, tune2fs 'Filesystem state: clean' on both
+   NOTE: the pre-check 'fuser -q -m' used an unsupported option (-q) and did not
+   actually evaluate busyness; the unmounts succeeded anyway, so no impact —
+   recorded here because the evidence line must not imply a check that did not run.
+
+3. POST-CHANGE INTEGRITY VERIFICATION
+-------------------------------------
+$ for t in /mnt/hdd-archive/config-backup/*.tar.gz; do tar tzf "$t" >/dev/null; done
+  pve-config-20260920.tar.gz: TAR_OK   pve-config-20261011.tar.gz: TAR_OK
+  pve-config-20260927.tar.gz: TAR_OK   pve-config-20261018.tar.gz: TAR_OK
+  pve-config-20261004.tar.gz: TAR_OK
+$ tar tzf pve-config-20261018.tar.gz | head
+  etc/pve/ etc/pve/.debug etc/pve/.vmlist etc/pve/.members etc/pve/lxc etc/pve/local
+  → weekly /etc/pve change-control evidence is intact and readable (5 copies).
+$ sha256sum /mnt/hdd-iso/template/iso/noble-server-cloudimg-amd64.img
+  d1940f7d69d343355e183dff1e08a59852d32e7309baa7a4bad8365b11b005ac
+  ⚠ UNVERIFIED — this local SHA has not yet been compared against the Ubuntu
+  cloud-images release-notes entry for the exact build (manual check required).
+$ df -h /  → 94G total, 23G used, 67G avail (25%) — root fs unchanged
+$ remaining FAIL from the script (intentional, not suppressed):
+  "hand-written vzdump job(s) in jobs.cfg are REJECTED by the parser — no backup
+   job is scheduled"; "no PBS datastore 'pbs01' on this host".
+  → both require the operator (secret custody) — see runbook §3.4–3.6.
+
+4. WHAT STILL HAS NO BACKUP (risk statement)
+--------------------------------------------
+VMID 100 rag-prod-lt01 : 1 stale same-device dump (2026-08-12), no schedule
+VMID 101 mcp-prod-lt01 : none
+VMID 102 her-prod-lt01 : none
+Host evidence (/mnt/hdd-archive): 1 copy (HDD) until hv01-archive-to-pbs.sh runs
+3-2-1 "one off-site" leg: not met — pbs01 remote sync (pbs-jol01) still pending
+⚠ UNVERIFIED: the reported "separate power supply" for the HDD is a physical
+  property not observable from the OS; an independent PSU rail does not create a
+  separate failure domain (SATA link, controller, host, building UPS all shared).
+
+5. MONITORING CONTROL FAILURE (found while verifying §4, HIGH)
+--------------------------------------------------------------
+$ wc -l /mnt/hdd-archive/health/ALERTS.log
+  415
+$ head -3 /mnt/hdd-archive/health/ALERTS.log
+  [2026-07-31 06:00:01] CRITICAL: SMART FAILURE on /dev/nvme0n1 - replace immediately
+  [2026-07-31 06:00:01] CRITICAL: SMART FAILURE on /dev/sda - replace immediately
+  [2026-07-31 06:00:01] CRITICAL: VM 100 is  - attempting restart
+$ grep -o "CRITICAL: [A-Za-z]* [A-Za-z]*" … | sort | uniq -c | sort -rn
+  249 CRITICAL: VM
+  166 CRITICAL: SMART FAILURE
+  → 415 alerts over 83 days, ALL false positives, ZERO real findings.
+$ cat /etc/cron.d/jol-health
+  0 6 * * * root /usr/local/bin/jol-health-check.sh       (no PATH= line)
+$ grep -hE "SMART|VM 10|Thin pool" /mnt/hdd-archive/health/2026-10-21-health.log
+  [06:00:01] Thin pool: data=% meta=%
+  [06:00:01] SMART /dev/nvme0n1:
+  [06:00:01] VM 100:
+  → probes empty because cron PATH is /usr/bin:/bin and lvs/smartctl/qm are in
+    /usr/sbin. The script mapped "command not found" to "drive failed / VM
+    stopped". Reproduced by running the ORIGINAL script under
+    'env -i PATH=/usr/bin:/bin' — identical output to the historic alerts.
+  → collateral fact: 'qm start' never executed either, so the auto-restart safety
+    net has never existed. No availability is lost by making restart opt-in.
+$ ras-mc-ctl --summary / --errors
+  "No Memory errors." … "No MCE errors."   → the old gate counted the word
+  "error" in those headings and reported "22 RAM errors" — also fiction.
+  Real records: 6 'Disk errors' entries dated 2026-10-21 13:06:07, dev=8:0
+  (/dev/sda), rwbs WS/WSM — i.e. the hot-removal event, correctly attributed to
+  the block device, not to RAM.
+
+6. WATCHDOG REPLACED + POST-CHANGE VERIFICATION
+-----------------------------------------------
+pre-change copies: jol-health-check.sh.orig and cron.d-jol-health.orig in the same
+                   prechange-20261021-152255 directory
+$ install -m 750 -o root -g root /tmp/hv01-health-check.sh /usr/local/bin/jol-health-check.sh
+  sha256 fdd1a5fa32d78d998b6f9f0ba1f2e37e9c5180b8de14841fb776ca44d132cece (source == installed)
+  -rwxr-x--- 1 root root 12553  (managed copy now also in
+  scripts/maintenance/hv01-health-check.sh — the host-only artifact gap is closed)
+$ /etc/cron.d/jol-health now:
+  PATH=/usr/sbin:/usr/bin:/sbin:/bin
+  0 6 * * * root /usr/local/bin/jol-health-check.sh
+$ env -i PATH=/usr/bin:/bin SHELL=/bin/sh /bin/sh -c /usr/local/bin/jol-health-check.sh ; rc=1
+  CRITICAL: 6 block-device I/O error record(s) today (rasdaemon 'Disk errors')
+  CRITICAL: Backup job drift: 1 section(s) in jobs.cfg but 0 registered in the scheduler
+  CRITICAL: No vzdump task in the cluster task log — no backup has run on this host
+  (all other gates silent = pass: mounts real, SMART PASSED both drives, thin pool
+  5.82 %/0.49 %, NVMe spare 100 %, 3 VMs running, root fs 25 %, HDD 1 %, NTP Normal,
+  config backup fresh) → no false positives remain, and the two statements that
+  matter ("no backup exists") are now machine-detected.
+$ env -i PATH=/usr/bin:/bin VM_IDS=9999 … ; rc=1
+  CRITICAL: VM 9999 status unreadable (qm returned nothing) - not assuming stopped
+  → negative test: an unreadable probe is no longer reported as a stopped VM.
+
+7. GATE STATUS SUMMARY (runbook §6)
+-----------------------------------
+PASS  Mount survivability (nofail in fstab, mount -a rc=0)          — boot-time proof
+      still pending the next scheduled reboot
+PASS  FS integrity (e2fsck rc=0, state clean, -c 30 / -i 180d set)
+PASS  No fake backup target (hdd-iso content vztmpl,iso; 393 GB shown)
+PASS  Evidence readable + fresh (5 tarballs, newest 2026-10-18)
+PASS  Freshness alerting implemented (gates 9/10/11 verified live, rc=1)
+FAIL  PBS datastore registered            — operator, Web UI (secret custody)
+FAIL  Job valid + scheduled + all 3 VMs   — blocked on the line above
+FAIL  Backup actually lands / evidence replicated / negative encryption /
+      restore drill / retention           — blocked on the two lines above
+⚠ UNVERIFIED  prox01 (10.60.60.10) backup path — same two probes must be run there;
+      unreachable from this workstation this session. The pilot docs inherit the
+      hv01 assumption and must not be trusted until probed.
+
+8. ROOT CAUSE OF THE DEAD BACKUP JOB (corrects the initial hypothesis)
+----------------------------------------------------------------------
+$ cat -A /etc/pve/jobs.cfg          (and the identical prechange copy; ^I = TAB)
+  vzdump: job-vm100-nightly$
+  schedule 30 3 * * *$
+  storage local$
+  vm 100$
+  compress zstd$
+  mode snapshot$
+  prune-backups keep-last=3$
+  mailnotification failure$
+  enabled 1$
+  → NOT ONE option line begins with a TAB. PVE's parser requires continuation
+    lines to start with a tab, so every option was dropped: hence
+    "ignore config line: …" for lines 2-9 and "missing value for required option
+    'schedule'", and hence the empty /cluster/backup registry.
+  → The initial hypothesis in this session's first pass ("the 5-field cron
+    `30 3 * * *` is invalid") was WRONG and is corrected here: that schedule form
+    is valid PVE cron. The defect is file serialisation — the jobs.cfg section was
+    hand-written (heredoc/echo) instead of created through the API.
+  → Remediation therefore stands as: create the job with
+    'pvesh create /cluster/backup …' (PVE writes the tabs), delete the inert
+    section with 'pvesh delete', and keep watchdog gate 9 (jobs.cfg section count
+    vs scheduler registry count) as the permanent drift detector, because a
+    hand-edited jobs.cfg can look perfectly configured and do nothing.
+
+9. STEP (a)/(b) FEASIBILITY PROBES + PVE 9 API FACTS (read-only)
+---------------------------------------------------------------
+Reachability from this workstation:
+  /dev/tcp/10.10.10.30/22   → CLOSED     (pbs01 SSH, VLAN 10 not routed here)
+  /dev/tcp/10.10.10.30/8007 → CLOSED     (pbs01 API)
+  /dev/tcp/10.60.60.20/8006 → OPEN       (PVE GUI/API reachable — but logging in
+      with your web credentials is out of bounds for the agent per §0.1 and the
+      Tier-1 forbidden list, and the PBS token must never reach a command line)
+  ping 10.10.10.50 (admin01, the documented jump host) → 100 % packet loss
+From hv01 toward pbs01:
+  ssh -o BatchMode=yes root@10.10.10.30 hostname  → no output, not authorised
+      (fleet SSH chain is admin01 → pbs01; hv01 holds no key there)
+  TCP 10.10.10.30:8007                            → open (backup traffic path OK)
+TLS pin, verified independently of the doc (not copied from it):
+  openssl s_client -connect 10.10.10.30:8007 → x509 -fingerprint -sha256
+  sha256 Fingerprint=4B:93:A9:7E:0B:9A:89:EE:1A:9F:64:2C:40:E1:8F:3A:4A:91:92:D4:29:ED:F5:A6:1B:1D:B3:26:E6:4C:54:92
+  subject=O=Proxmox Backup Server, OU=423FADE4-…, CN=pbs01.jol.lan
+  notBefore=Jul  4 10:12:25 2026 GMT  notAfter=Nov  4 10:12:25 3025 GMT
+  → identical to docs/servers/pbs01.md, so the pin to type into the Web UI is correct.
+Phase 7 dependency:
+  command -v proxmox-backup-client (on hv01) → /usr/bin/proxmox-backup-client
+  → no package install needed; earlier guidance saying 'apt install …' was wrong.
+PVE 9 API facts, read from the live source (not assumed):
+  /usr/share/perl5/PVE/API2/Backup.pm (POST /cluster/backup properties):
+    id        (pve-configid, optional)   ← NOT 'sid'
+    schedule  (format pve-calendar-event, "a subset of systemd calendar events")
+                                            ← legacy 5-field cron is not what PVE writes;
+                                              'starttime'/'dow' are deprecated shorthands
+                                              that PVE converts to exactly "HH:MM"
+    comment   (job description)          ← NOT 'notes'
+    enabled, repeat-missed, + PVE::VZDump::Common options (storage, vmid, mode,
+    compress [gzip|lzo|zstd], prune-backups, mailnotification [always|failure], …)
+  /usr/share/perl5/PVE/VZDump/Common.pm: "'storage' parameter is required when
+    'enabled' is set" — the API cannot be half-configured.
+  /usr/share/perl5/PVE/Storage/PBSPlugin.pm:
+    pbs_password_file_name        → /etc/pve/priv/storage/<storeid>.pw   (0600)
+    pbs_encryption_key_file_name  → /etc/pve/priv/storage/<storeid>.enc
+    → the documented '…pbs01.ps1' guess was wrong; gates now check .pw.
+  Current priv layout on hv01 (pre-registration): /etc/pve/priv/ contains acme,
+    authkey.key, authorized_keys, lock, pve-root-ca.key/.srl — no storage/ dir,
+    consistent with §1 "no PBS datastore".
+Onboarding script gate test (no mutation):
+  sudo DRY_RUN=1 hv01-backup-onboard.sh →
+    "FAIL : datastore 'pbs01' is not registered on this host — finish step (b) in
+     the PVE Web UI first …"
+    "=== hv01-backup-onboard.sh aborted at gate 1 — no changes made ==="  (rc=1)
+  → steps (a) and (b) are the only operator-gated items left; the job creation,
+    registration re-check, next-run proof, first pipe-test vzdump and phase-7
+    secret/cron checks all run from that one script once the datastore exists.
+
+10. PHASE-7 PREP INSTALLED (no secrets handled)
+-----------------------------------------------
+$ install -m 750 -o root -g root  hv01-archive-to-pbs.sh /usr/local/bin/
+  -rwxr-x--- 1 root root 6677  /usr/local/bin/hv01-archive-to-pbs.sh
+  sha256 1a28bb6c952aaa49b9160424797f7552af1f88463f24fbbf43894f65d2c70dc3
+  == repo copy scripts/maintenance/hv01-archive-to-pbs.sh (byte-identical)
+$ install -d -m 700 /etc/jol-hv01        → present, empty, 700 root:root
+$ ls /etc/cron.d/ | grep -i hv01         → none (deliberately: the job must not fire
+  before the token + encryption-key files exist; enabling it now would only log
+  failures into a channel nobody can see, cf. §11 mail finding)
+
+11. CONTROL-PLANE FINDINGS BEYOND STORAGE (read-only probes, nothing changed)
+--------------------------------------------------------------------------
+(a) Host firewall — documented as enabled, is not:
+$ ufw status verbose            → "Status: inactive"
+$ iptables -S                   → -P INPUT ACCEPT / -P FORWARD ACCEPT / -P OUTPUT ACCEPT
+$ sysctl net.bridge.bridge-nf-call-iptables      → 0   (good: bridged VM traffic is
+    not pulled into host INPUT, so an enable cannot repeat the 2026-08-08 class)
+$ ss -tn state established '( sport = :22 )'     → peer 192.168.88.249
+$ ip -4 addr show (workstation) → this operator host IS 192.168.88.249/24 on
+    enp8s0, route to hv01 via 192.168.88.1
+  ⇒ the documented rule set (allow 22 from 10.60.60.0/24 + mgmt only) would have
+    severed the only operator session on a board with no IPMI. NOT applied.
+
+(b) Monitoring — documented as active, does not exist:
+$ systemctl list-unit-files (grep node_exporter/netdata) → NO_UNITS
+$ dpkg -l (netdata / node-exporter / prometheus)         → no packages
+$ ls /usr/sbin/netdata /usr/bin/node_exporter /usr/local/bin/node_exporter → all absent
+$ ss -tlnp (9100/19999)                                  → NO_MONITOR_LISTENERS
+$ systemctl is-active netdata                           → inactive
+  ⇒ server doc claimed "Monitoring: yes (node-exporter, netdata)" and inventory
+    claimed monitoring_enabled: true. Both corrected to false.
+
+(c) Notification transport — every mail-based control is void:
+$ postconf -n → inet_interfaces = loopback-only, mynetworks = 127.0.0.0/8, relayhost = (empty)
+$ systemctl is-active postfix → active ; /usr/sbin/sendmail and /usr/bin/mail exist
+$ mailq → 6 deferred requests, all addressed to <operator-mailbox> (redacted here on
+    purpose — recipient PII does not belong in the repo), sender root@pve.prod.lt9
+    reason on every entry: "connect to alt2.gmail-smtp-in.l.google.com[…]:25:
+    Connection timed out" and for IPv6 addresses "Network is unreachable"
+    oldest delay=294616 s (≈ 3.4 days), dsn=4.4.1 status=deferred
+$ journalctl (14 d) → repeated '…:25: Connection timed out' for
+    gmail-smtp-in.l.google.com / alt1 / alt2, i.e. continuous retry, zero delivery
+$ ls /var/mail /var/spool/mail → empty (nothing has ever been delivered locally)
+$ outbound port tests from hv01 → :25 BLOCKED, :587 BLOCKED, :465 OPEN
+  ⇒ cron mail and vzdump 'mailnotification failure' reach nobody. The 415 false
+    CRITICALs in §5 were therefore doubly invisible. Remediation options: postfix
+    relayhost via authenticated submission on 465 (needs an app password — operator
+    only), or a PVE 9 notification target, or accept pull-based detection and make
+    ALERTS.log the system of record (current state, documented).
+
+(d) pbs01 admin plane reachability (why step (a) needs the console):
+$ from this workstation: 10.10.10.30:22 CLOSED, 10.10.10.30:8007 CLOSED,
+  ping 10.10.10.50 (admin01) 100 % loss
+$ from hv01:             10.10.10.30:8007 OPEN (backup traffic path fine),
+                         10.10.10.30:22 CLOSED/filtered (pbs01 nftables allows SSH
+                         from 10.10.10.0/24 only), and hv01 holds no authorised key
+  ⇒ a hv01 SSH jump cannot deliver step (a). Doing it as a one-off through an
+    SSH tunnel to pbs01:8007 would move a backup-server admin plane onto the
+    router LAN segment this workstation sits on — recorded as rejected for
+    habitual use in the runbook §1c, and not performed.
+
+12. OPERATOR RAN THE pbs01 COMMANDS ON THE WRONG HOST → PROCEDURE CORRECTED
+---------------------------------------------------------------------------
+What was pasted, and where it actually ran (verified on this workstation):
+  hostname → ubuntu ; hostname -I → 192.168.88.249 (+ docker bridges) ; Ubuntu 24.04.5
+  $ install -d -m 750 -o backup -g backup /backup-pool/pbs-store/ns/jol-hv01
+    install: cannot create directory '/backup-pool': Permission denied
+  $ proxmox-backup-manager acl update … (twice)
+    proxmox-backup-manager: command not found
+  $ ls -d /backup-pool → No such file or directory
+  $ command -v proxmox-backup-manager proxmox-backup-client → nothing installed
+  ⇒ Both failures are correct behaviour, not defects: /backup-pool is a ZFS mount
+    that exists only on pbs01, and proxmox-backup-manager ships only with PBS.
+    Nothing was created anywhere; no rollback required.
+
+Two real defects in MY earlier drafts (both corrected in docs/servers/pbs01.md and
+runbook phase 4):
+  1. Option name — PBS uses --auth-id. Verified against the PBS 4.2 User Management
+     docs, which show exactly:
+       proxmox-backup-manager acl update /datastore/store1 DatastoreAdmin --auth-id john@pbs
+       proxmox-backup-manager acl update /datastore/store1 DatastoreBackup --auth-id 'john@pbs!client1'
+     My draft used --userid, which would have failed on pbs01 as well.
+  2. ACL path for a namespace — the docs publish only the template
+     '/datastore/{store}/{ns}'. Whether the concrete grant path is
+     '/datastore/pbs-store/jol-hv01' or '/datastore/pbs-store/ns/jol-hv01' must be
+     read from the PBS GUI path picker (or from the existing jol-llm grant), not
+     guessed: a wrong path creates an inert ACL — the same 'looks configured, does
+     nothing' class as the TAB-mangled jobs.cfg section in §8. Procedure is GUI-first
+     now, with the directory method kept only as a no-GUI fallback.
+
+Is step (a) necessary at all? Undecided by design, because it depends on a fact that
+cannot be read from here: which ACLs 'pve-backup@pbs' already holds. Step 1 of the
+procedure is therefore 'list the existing grants on pbs01'. If that user already has
+DatastorePowerUser on /datastore/pbs-store with propagate (plausible — the 2026-08-01
+audit records the user and token being created for PVE backups), then the namespace
+is optional hygiene and the PVE datastore registration can proceed immediately; the
+namespace only narrows blast radius on a datastore shared with the 22 GB jol-llm
+archive, which is what least privilege (ISO A.8.2, A.8.3) would prefer.
+
+Risk surfaced by the same probing (needs its own decision): pbs01's admin plane is
+reachable from exactly one network (10.10.10.0/24, via admin01), and admin01 does not
+answer from this workstation. Backups that cannot be reached cannot be restored — the
+RTO 4 h claim currently rests on a single, untested admin path. Recommend restoring
+admin01 reachability from a documented mgmt host, or formally designating the pbs01
+console route and testing it once as a restore rehearsal.
+
+13. SAME CLI PASTED INTO THE WORKSTATION AGAIN → PROCEDURE MADE HOST-AGNOSTIC
+-----------------------------------------------------------------------------
+$ hostname → ubuntu ; 172.31.x/192.168.88.249 ; Ubuntu 24.04.5 (this workstation)
+$ proxmox-backup-manager acl list --auth-id 'pve-backup@pbs'  → command not found
+$ proxmox-backup-manager datastore list                       → command not found
+  ⇒ Second occurrence of §12. Root cause is not operator error but procedure design:
+    my step (a) assumed an interactive root shell on pbs01, which this environment
+    does not have (22 filtered from hv01 as well, admin01 unreachable). The
+    information asked for is visible without any CLI, in the PBS Web UI:
+      Datacenter-level 'Permissions' view and Datastore → pbs-store → Permissions
+      show every path/role/auth-id triple; Datastore → pbs-store → Namespaces shows
+      existing namespaces (jol-llm expected) and has Add.
+    A guard is now part of the procedure so a PBS-only command cannot run blind:
+      [ -x /usr/bin/proxmox-backup-manager ] || echo "NOT a PBS host — you are at
+      $(hostname); use the Web UI path instead"
+
+Access deviation executed and recorded (self-expiring, loopback-only):
+  $ timeout 900 ssh -f -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 \
+      -L 127.0.0.1:8443:10.10.10.30:8007 jol-admin@10.60.60.20
+    started 2026-10-21 17:04:15 EEST, auto-expires ~17:19 (no manual teardown needed)
+  $ ss -tln → LISTEN 127.0.0.1:8443 (pid 158871) — bound to loopback, not 0.0.0.0
+  $ curl -k https://127.0.0.1:8443/api2/json/version → HTTP 401 "authentication
+    failed"  ⇒ PBS API alive and reachable through hv01; no credential used
+  $ curl -k https://127.0.0.1:8443/                 → HTTP 200, 2200 bytes (GUI)
+  Why acceptable as a one-off: the forward is loopback-bound, credentials are typed
+  by the operator (never by the agent), it expires on its own in 15 minutes, and it
+  is recorded here as an access deviation (ISO A.8.2, A.5.15; SOC 2 CC6.1).
+  Standing recommendation unchanged: make pbs01 administration reachable from the
+  documented mgmt network (restore admin01) instead of relying on hypervisor-jumped
+  tunnels; and note this proves the pbs01 firewall does permit 8007 from
+  10.60.60.0/24, so the backup data path itself is correctly configured.
+
+14. PBS GUI LOGIN FAILED — CAUSE, BAN RISK, AND A PATH THAT NEEDS NO PBS ADMIN
+------------------------------------------------------------------------------
+Attempt (operator screenshot, 2026-10-21 ~17:1x): User name 'jol-admin',
+Realm 'Linux PAM standard authentication' → "Login failed. Please try again".
+Why it must fail (not a wrong password): pbs01 has no 'jol-admin' principal with UI
+rights. Its own documented access is root-only for SSH, and the only PBS-realm
+accounts created so far are backup principals — 'pve-backup@pbs' (+ 'pve-token')
+and 'jol-llm-backup@pbs' (+ 'llm-token'), which hold datastore roles, not UI/PAM
+identity. Correct interactive identity is 'root' + Linux PAM, password from the
+password manager.
+
+Ban risk created by the tunnel (recorded before it bit us):
+  pbs01 runs fail2ban: 3 retries → 24 h ban, ignoreip 10.10.10.0/24 (docs/servers/
+  pbs01.md §SSH Policy). Through the hv01 tunnel the apparent source address of GUI
+  auth failures is 10.60.60.20 — the SAME address that must reach 8007 for nightly
+  backups and for any restore. Banning it would turn a login typo into an outage of
+  the backup path (A.8.13 / A1.2 availability). Post-incident probe from hv01:
+    TCP 10.10.10.30:8007 → OPEN, OPEN (3 attempts) ⇒ no ban had been applied
+  Action taken: the tunnel was closed rather than retried.
+
+SSH request handled as a transport question, not an assumption (correcting my own
+earlier weaker evidence, which rested on empty output):
+  from hv01:  timeout 6 bash -c 'exec 3<>/dev/tcp/10.10.10.30/22'  → rc=124 (TIMEOUT)
+              banner read → 0 bytes (sshd never answered; no KEX, no auth stage)
+              ssh -v … root@10.10.10.30 true → rc=255 with no pre-auth output
+              timeout 6 bash -c 'exec 3<>/dev/tcp/10.10.10.30/8007' → rc=0 (instant)
+  ⇒ port 22 is DROPped by pbs01 nftables (allow 22 from 10.10.10.0/24 only); 8007 is
+    permitted from 10.60.60.0/24. "Log in via SSH" is therefore impossible from any
+    host reachable in this session — no key exists to offer because the TCP session
+    never forms. Remaining admin shells: pbs01 physical console, or admin01
+    (10.10.10.50 — no route from the workstation).
+
+Tunnel teardown (and a self-inflicted shell kill, recorded for accuracy):
+  $ pkill -f "8443:10.10.10.30:8007"   → also matched the invoking shell's own
+    command line, so the wrapper died with the tunnel (exit 143) and its buffered
+    output was lost. Re-verified independently:
+  $ ss -tln | grep -c '127.0.0.1:8443' → 0 ; pgrep -f '^ssh -f -N -o ExitOnForward' → none
+  ⇒ listener gone; no residual forward left on the workstation.
+
+Path chosen instead (no pbs01 admin, no credential in argv or history) — documented
+as step 1 in docs/servers/pbs01.md: on hv01, write the token secret to
+/etc/jol-hv01/pbs-token via 'read -rs' (mode 600) and run
+  proxmox-backup-client list --repository 'pve-backup@pbs!pve-token@10.10.10.30:pbs-store' --ns jol-hv01
+with PBS_PASSWORD_FILE + pinned PBS_FINGERPRINT. The answer distinguishes the three
+states that matter (grants sufficient / ACL missing / namespace absent), which is
+what the failed CLI probes were trying to learn.
+
+15. THE PROBE FAILED WITH "authentication failed" — CAUSE WAS MY OWN PASTE FORMAT
+---------------------------------------------------------------------------------
+Operator ran the block on hv01; the token file was created and the client then
+returned, for all three namespaces (jol-hv01, root, jol-llm):
+  Error: authentication failed
+
+Forensic check of /etc/jol-hv01/pbs-token (measurements only, value never printed):
+  bytes = 43 ; whitespace/newline chars = 1 ; chars in [A-Za-z0-9_-] = 37
+  ⇒ the file contained the literal string
+      PBS_PASSWORD_FILE=/etc/jol-hv01/pbs-token \
+  which measures identically: 43 bytes, 37 charset-valid chars, 1 space, 1 backslash,
+  3 '/' and 1 '='.
+  Root cause: the procedure I supplied was a MULTI-LINE paste whose second line is
+  consumed by the interactive 'read -rs' on the first line. So no secret was ever
+  stored — PBS correctly rejected a password that was a fragment of my own command.
+  This is a defect in the instruction, not operator error, and it is the same class
+  as every other finding today: a control that looks configured and does nothing.
+
+Action taken: the bogus credential was truncated in place (": > file") so it cannot
+be mistaken for a live secret — verified bytes = 0, mode 600 root:root preserved.
+
+Corrected rule for interactive secret entry (single line, then verify before use):
+  read -rs -p "PBS token secret: " T; printf '%s' "$T" > /etc/jol-hv01/pbs-token; unset T
+  (paste exactly ONE line, press Enter, type or paste the secret, press Enter)
+  then verify structurally without disclosing it:
+  [ "$(wc -c < /etc/jol-hv01/pbs-token)" = "$(tr -cd 'A-Za-z0-9_-' < /etc/jol-hv01/pbs-token | wc -c)" ] && echo CHARSET_CLEAN || echo CONTAINS_STRAY_CHARS
+  A PBS token secret is a single unbroken token: any space, slash, backslash, '=' or
+  newline means the capture was wrong, and the client will report a misleading
+  'authentication failed' rather than 'bad input'.
+
+Positive result worth recording: the error came back from PBS itself over TLS, so
+hv01 → 10.10.10.30:8007 is authenticated-transport-capable, no fail2ban hit occurred,
+and the earlier GUI login failure did not damage the data path.
+
+16. PVE GUI LOGIN FAILURES — NOT A PASSWORD PROBLEM (auth-log evidence)
+----------------------------------------------------------------------
+$ journalctl (19:13–19:17) → pvedaemon: authentication failure; rhost=::ffff:192.168.88.249
+    user=root@pam@pam     msg=no such user ('root@pam@pam')
+    user=jol-admin@pam    msg=no such user ('jol-admin@pam')
+    user=jol-admin@pa@pam / jol-admin@pam@pam   (same class)
+$ pvesh get /access/domains → realms: 'pam' (Linux PAM), 'pve' (PVE auth server)
+$ pvesh get /access/users   → exactly ONE user: root@pam, enabled=1, expire=0, no TFA
+$ passwd -S root → 'P' (password set, last change 2026-07-30)
+$ passwd -S jol-admin → 'L' (no Linux password by design — key-only SSH account)
+$ faillock --user root/jol-admin → empty (no PAM lockout recorded)
+$ fail2ban-client status → 1 jail: sshd  ⇒ GUI/pvedaemon failures do NOT ban an IP
+  (contrast pbs01, where a GUI ban would have cut the backup data path — see §14)
+
+Diagnosis: the realm was typed into the username field. PVE appends the selected
+realm itself, so 'root@pam' becomes 'root@pam@pam' → 'no such user'. And 'jol-admin'
+cannot use the GUI at all: it has no PVE account and its Linux password is locked
+(key-only by design). Correct input: User name 'root', Realm 'Linux PAM standard
+authentication', password = the root password set 2026-07-30.
+
+Access-model observation (not a defect, recorded for the audit trail): the only
+interactive PVE principal on this hypervisor is root@pam, so every GUI/API action is
+attributable to a shared superuser rather than a named operator — SOC 2 CC6.1/C1.4
+and ISO A.8.2/A.5.18 would prefer a per-operator account in the 'pve' realm with an
+explicit role, and TFA enabled. Tracked as a follow-up, deliberately not changed in
+this session (creating accounts on a prod auth domain is its own change record).
+
+17. DESIGN CHANGE REMOVING THE FAILURE CLASS (no terminal secret capture anywhere)
+---------------------------------------------------------------------------------
+Rather than instruct the operator to type the secret a second time, phase 7 now
+reuses the credential PVE already stores after Web UI registration:
+  scripts/maintenance/hv01-archive-to-pbs.sh  TOKEN_FILE resolution order:
+    1. $PBS_TOKEN_FILE (explicit override)
+    2. /etc/pve/priv/storage/pbs01.pw   ← written by PVE itself, 0600 root
+    3. /etc/jol-hv01/pbs-token          ← fallback only
+  with a hard stop: "no usable PBS credential … Register the 'pbs01' datastore in the
+  PVE Web UI first". hv01-backup-onboard.sh likewise no longer asks for a typed token;
+  it reports the PVE credential file as present and only the encryption key needs
+  creating (proxmox-backup-client key create, non-interactive, no passphrase).
+  Net effect: exactly one secret entry point remains in the whole procedure — the
+  browser form — which is not subject to the paste/read failure mode of §15.
+  Verified: shellcheck clean on both scripts; reinstalled on hv01 and byte-identical
+  (sha256 prefix 123432285393b20b on host and in repo); /etc/jol-hv01/pbs-token
+  measured 0 bytes and left empty; no 'pbs' storage yet in /etc/pve/storage.cfg;
+  pvesh get /cluster/backup still [] — i.e. nothing downstream has been faked as done.
+
+18. HIGH — WEEKLY CONFIG BACKUP CONTAINED PRIVATE KEYS (found and fixed)
+------------------------------------------------------------------------
+Discovery: while checking what phase 7 would replicate, the newest config tarball
+was listed:
+$ tar tzf /mnt/hdd-archive/config-backup/pve-config-20261018.tar.gz | grep -E 'priv|key|pem'
+  etc/pve/priv/pve-root-ca.key   etc/pve/priv/authkey.key   etc/pve/priv/authorized_keys
+  etc/pve/pve-www.key            etc/pve/nodes/pve/pve-ssl.key   etc/pve/priv/pve-root-ca.srl
+$ stat -c '%a' pve-config-20261018.tar.gz → 644        (world-readable, on the HDD)
+Why it matters: the PVE root CA key + cluster authkey allow an attacker who reads
+one archive to mint certificates trusted by the cluster and authenticate against
+pmxcfs. The old cron line tarred all of /etc/pve with 2>/dev/null and no excludes,
+and the planned nightly pxar push would have copied this off-host every night.
+
+Fix applied 2026-10-21 22:22 (scripts/maintenance/hv01-config-backup.sh, installed
+/usr/local/bin 750, host and repo byte-identical sha256 c1a56589d717):
+  - excludes etc/pve/priv, *.key, *.pem, *.srl; umask 077; archive forced to 600
+  - refuses to publish if any key entry survives the excludes (exit 1)
+  - /etc/cron.d/jol-config-backup rewritten: PATH + SHELL set, errors no longer
+    swallowed, output logged to /var/log/jol-hv01/config-backup.log
+  - previous tarballs chmod 600; old cron preserved at
+    /mnt/hdd-archive/system/jol-config-backup.pre-fix-20261021-222224
+Verification of the new archive:
+  OK: pve-config-20261021.tar.gz mode=600 size=132K
+  key-bearing entries: 0        useful config entries retained: 9
+  (storage.cfg, qemu-server/, cluster.conf, fstab, interfaces all present)
+
+Watchdog extended (sha256 440d40de0be1, host == repo) with two gates that both fired
+correctly on the first cron-like run (rc=1, 4 true alerts, no false positives):
+  - config archive must contain no private key material and must be mode 600
+  - every declared storage must be usable → 'storage pbs01 is declared but
+    status=inactive — backups targeting it will fail' (the exact class that hid the
+    dead backup job for ten weeks is now detected automatically)
+
+OPEN DECISION (not taken unilaterally): the five pre-fix tarballs (2026-09-20 →
+2026-10-18) still contain the key material, now at mode 600 on the HDD. Options:
+  (a) delete them — the config history is reproducible and today's clean archive
+      replaces it:  sudo rm /mnt/hdd-archive/config-backup/pve-config-2026{09,1}*.tar.gz
+  (b) keep them as change evidence and accept key exposure while the HDD exists
+  Either way, if the HDD has ever left the site or been copied, treat
+  pve-root-ca.key + authkey.key as compromised and rotate (pvecm ca root / re-issue).
+  Recommended: (a) plus confirm in Vaultwarden that the CA key, authkey and
+  pbs01.enc are escrowed, since they are deliberately no longer backed up.
+
+19. HIGH — pbs01 IS CURRENTLY UNADMINISTRABLE (credential custody broken)
+-------------------------------------------------------------------------
+Observed: PBS Web UI login as `root` + Linux PAM with the operator's pre-existing
+password → "Login failed. Please try again" (one attempt only, then stopped).
+Documented reason, from this fleet's own record (docs/servers/pbs01.md, First Audit
+2026-08-01): "P0 hardening executed: … **root password rotated**. New root password
+stored in password manager (not in repo)". The operator's password predates that
+rotation, so failure is expected — it is not a typo and not a realm mistake.
+
+The custody chain is broken at every link simultaneously:
+  - pbs01 root password  → only in Vaultwarden
+  - PBS token secret      → only in Vaultwarden (and never re-displayable by PBS)
+  - Vaultwarden (on-prem) → loopback-only at http://127.0.0.1:8090 **on admin01**
+  - admin01 (10.10.10.50) → `No route to host` from the workstation; no ICMP reply
+                            from pve-prod-hv01 either → host down or isolated
+  - pbs01 SSH (22)        → DROPped from every reachable source (verified: timeout,
+                            zero banner bytes; 8007 on the same host connects instantly)
+  ⇒ no path exists today to authenticate against pbs01 at all.
+
+Risk statement (this is the material finding, not the disk): a backup server that
+cannot be administered cannot be restored from. The documented RPO 24 h / RTO 4 h
+and the whole 3-2-1 claim are unprovable while this holds, and ISO A.5.15/A.8.13
+plus SOC 2 CC6.5/A1.2 all assume recoverability is testable. Worse, the same
+Vaultwarden holds every fleet credential and its data directory
+(/home/jol/secrets/vaultwarden on admin01) has **no evidence of ever being backed
+up**, despite the architecture note instructing exactly that — loss of that one disk
+would be an unrecoverable, fleet-wide credential event.
+
+Containment taken during this session:
+  - tunnel closed after the FIRST failed attempt (listener 127.0.0.1:8443 → 0),
+    because the apparent source was 10.60.60.20 and pbs01 fail2ban (3 strikes → 24 h)
+    would have banned the address that must reach 8007 for backups and restores
+  - verified afterwards: hv01 → pbs01:8007 OPEN (no ban incurred)
+
+Options, with judgement:
+  1. Preferred — restore admin01 (power/NIC/routes). Then read the vault from the
+     cached client or the loopback API, recover the pbs01 root password, and the
+     remaining backup work takes minutes (all scripted and verified from here).
+  2. If admin01 will not boot: attach its disk elsewhere and open the Vaultwarden
+     data with the operator's master password (operator-only action; agent must not
+     touch secret material). Then re-secure: place the vault off that single disk.
+  3. If the pbs01 root password is unrecoverable: physical console + offline Linux
+     password reset on pbs01 (GRUB single-user), inside a maintenance window, as its
+     own change record. Note this recovers root access only — the token secret still
+     has to be regenerated afterwards (PBS shows it once).
+  4. Rejected: opening 22/tcp on pbs01 to 10.60.60.0/24 or the workstation's router
+     LAN for convenience. That widens the admin plane of a security appliance and
+     would also have to be justified against the zero-trust VLAN design.
+
+Follow-up owed regardless of which option is taken: back up the Vaultwarden data
+directory to pbs01 (encrypted) and record an offline copy of the master credentials,
+so 'the vault is unreachable' can never again be indistinguishable from 'the fleet
+is unrecoverable'.
+
+20. PHYSICAL FAULT FOUND AND CLEARED — backup path re-verified, admin path unchanged
+------------------------------------------------------------------------------------
+Operator reported a disconnected cable on the HP StorageWorks P4500 (pbs01); two
+links now show activity. Post-event verification from pve-prod-hv01:
+  ping -c 20 10.10.10.30  → 20/20 received, 0 % loss, rtt avg 0.852 ms (max 1.150)
+  TCP 10.10.10.30:8007    → OPEN
+  certificate             → sha256 4B:93:A9:7E:0B:9A:89:EE:… unchanged, still matches
+                            docs/servers/pbs01.md
+  ⇒ the path nightly vzdump and any restore will use is healthy.
+
+What did NOT change:
+  TCP 10.10.10.30:22 from hv01        → still closed (pbs01 permits SSH from
+                                         10.10.10.0/24 only — by design)
+  10.10.10.50 (admin01) from hv01     → no ICMP reply
+  10.10.10.50 from the workstation    → no route/no reply; the workstation has no
+                                         neighbour entry for 10.10.10.30 either, so
+                                         its ICMP success is routed reachability of
+                                         pbs01 only, NOT an admin path
+  ⇒ §19 stands: the credential vault is still unreachable, so pbs01 remains
+     unadministrable and the backup job cannot be completed. Next physical check is
+     admin01 itself — Dell N2048 port Gi1/0/47 (10.10.10.50, VLAN 10, documented
+     Active) plus its power supply, i.e. the same fault class just found on the P4500.
+
+Recommendation recorded: a site with one reachable hypervisor, one backup appliance
+and one admin workstation just demonstrated that its weakest failure mode is physical
+layer cabling, which no amount of ZFS redundancy or client-side encryption covers.
+Add to the runbook's follow-ups: cable/port inventory verification for admin01 and
+pbs01 links (ethtool + switch port error counters) at the next maintenance window.
+
+21. CORRECTION TO MY OWN RECOMMENDED ORDER (admin01 is not the critical path)
+-----------------------------------------------------------------------------
+§19 option 1 said "restore admin01 first". That is wrong for the immediate goal.
+admin01 matters because it hosts the vault, but the vault is only one of two ways to
+get a working pbs01 credential.
+
+Differential reachability from pve-prod-hv01, which isolates the fault to the box:
+  10.10.10.30 (pbs01)   → REPLY
+  10.10.10.1  (router)  → REPLY
+  10.10.10.50 (admin01) → NO_REPLY
+  ip route get 10.10.10.50 → via 10.60.60.1 (routing exists; the host is absent)
+  ⇒ VLAN 10, the switch and the router are healthy. admin01 itself is down: power,
+    its NIC, or its cable on Gi1/0/47. Checking it is still warranted — as a P1 for
+    credential availability, not as a step toward enabling backups.
+
+No local copy of the vault exists on this workstation (checked by existence only,
+never contents): no Bitwarden/Vaultwarden Chrome extension (known IDs absent), no
+desktop client dirs (~/.config/Bitwarden etc.), no `bw` CLI. So "read the secret from
+the laptop" is not available.
+
+Two independent unblock paths, ordered by time-to-backup:
+  A. FASTEST, no vault needed — at the pbs01 console: reboot into GRUB single-user
+     (`rw init=/bin/bash`), `passwd root`, reboot; log into the PBS UI as root;
+     Datastore → Namespaces → Add `jol-hv01`; Administration → Users →
+     `pve-backup@pbs` → Token View → Generate new secret; Permissions → Add
+     `DatastorePowerUser` on the namespace path for user and token; paste the secret
+     into PVE → Storage → pbs01 → Edit → Password. Then the scripted finish runs.
+     Cost: a short pbs01 outage (no backups are running yet, so nothing to disrupt)
+     and a credential change that must be recorded; the vault entry for pbs01 root
+     becomes stale and must be updated when admin01 returns.
+  B. If the vault is reachable from another device (phone/desktop Bitwarden client
+     with a synced offline copy): retrieve both secrets, skip the reset entirely.
+
+Explicitly rejected shortcut (professional judgement, recorded so nobody "fixes" it
+the easy way): reusing llm-prod-lt01's `jol-llm-backup@pbs!llm-token`, which already
+holds DatastorePowerUser on `/datastore/pbs-store`. It would work technically and is
+wrong: one shared credential across two hosts, no per-host rotation, no attribution
+of writes to a principal, and a single leak would compromise both estates
+(ISO A.5.15/A.8.2, SOC 2 CC6.1). The agent also does not read that file.
+
+State re-checked for drift before this correction — unchanged and consistent:
+`pbs01.pw` still 1 byte, `pvesm status` → `pbs01 inactive / 401 Unauthorized`,
+`pvesh get /cluster/backup` → `[]`, VMIDs 100/101/102 all running.
+
+22. SUPERSEDES §19 AND §21 — THE VAULT WAS NEVER ON admin01; IT RUNS ON THIS
+      WORKSTATION (root cause of the whole credential detour)
+---------------------------------------------------------------------------------
+On 2026-10-22 the operator asked whether Vaultwarden was functioning on Ubuntu 24.04.
+Direct inspection of this host answered it in one step:
+
+$ docker ps --format … | grep -i vault
+  jol-vaultwarden | vaultwarden/server:latest | Up 9 hours (healthy) | 127.0.0.1:8090->80/tcp
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/alive      → 200
+$ ss -tlnp → LISTEN 127.0.0.1:8090
+$ ls -la /home/jol/secrets/vaultwarden/
+  db.sqlite3 278528 (Aug 10)  db.sqlite3-shm 32768  db.sqlite3-wal 0
+  rsa_key.pem 1679  tmp/        dir mode 700 jol:jol
+$ findmnt -n -o FSTYPE,SOURCE /home → ext4 /dev/nvme0n1p7   (NOT encrypted)
+$ find/cron/systemd-timers scan for a vault backup → none anywhere
+
+Therefore §19's premise ("Vaultwarden is loopback-only on admin01, admin01 is down,
+so no credential path exists") and §21's ordering ("critical path = pbs01 console
+password reset") are both WRONG as stated. The true cause was a documentation defect:
+docs/architecture/secret-flow.md named the wrong host. The vault is reachable from
+this machine right now, and the pbs01 root password and PBS token secret can be read
+from it by the operator — no console visit, no password reset, no admin01 needed.
+
+That is also why this session's earlier reasoning was expensive rather than merely
+incomplete: every conclusion downstream of the doc line inherited the error, and the
+doc line was never checked against `docker ps`. Lesson recorded for future audits:
+before declaring a control unreachable because a document says it lives on host X,
+verify the service's actual location on the host you are standing in.
+
+New findings about the credential store itself (all verified, no secret content read
+or printed — names, modes, sizes and status codes only):
+  V1 SIGNUPS_ALLOWED=true                → open registration; safe only while the
+                                           loopback publish holds
+  V2 ADMIN_TOKEN is plaintext, 64 chars  → readable by anyone in the `docker` group
+                                           via `docker inspect` (this session read its
+                                           LENGTH and hashing form, never its value)
+  V3 image pinned as `:latest`           → violates the fleet digest-pinning rule
+  V4 no backup of the vault anywhere     → single unencrypted disk holds every fleet
+                                           credential; Vaultwarden's own README warns
+                                           about exactly this
+  V5 DOMAIN=http://127.0.0.1:8090, no TLS → acceptable loopback-only; must not be
+                                           widened before a TLS reverse proxy exists
+  V6 no sqlite3 CLI on host or in image  → naive copies risk torn pages
+
+Remediation authored this session: scripts/maintenance/vaultwarden-backup.sh
+(shellcheck clean; root guard smoke-tested; NOT executed by the agent — reading or
+copying /home/jol/secrets/** is on the Tier-1 forbidden list, so the operator runs
+it). It pauses the container, copies db.sqlite3 + -wal + -shm + rsa_key.pem as one
+consistent set, resumes, verifies the archive with PRAGMA integrity_check (counts
+only, never contents), stores it mode 600 with a SHA256SUMS, keeps 14 copies, and
+can stage a second copy to /mnt/hdd-archive/vaultwarden.
+
+Effect on the hv01 backup task: the remaining blocker is no longer a missing path —
+it is one operator action inside the vault (read pbs01 root password, or the PBS
+token secret; if the token entry is absent or stale, generate a new secret in the
+pbs01 UI) followed by pasting it into PVE → Storage → pbs01 → Edit → Password. From
+that moment every remaining step is scripted and verified from here.
+
+23. ONE-COMMAND FINISH BUILT; TWO DEFECTS IN MY OWN SCRIPT FOUND AND FIXED
+--------------------------------------------------------------------------
+While wiring the finish (job creation → first vzdump → snapshot proof → evidence
+cron → key reuse → watchdog re-run) the dry run exposed two flaws in
+scripts/maintenance/hv01-backup-onboard.sh, both of the class this incident keeps
+producing — code that looks like it ran:
+
+  (a) silent early exit. With `set -euo pipefail`, the statement
+        [[ "$DRY_RUN" == "0" ]] && pvesh get /cluster/next-run … | grep … | tee …
+      returns 1 whenever DRY_RUN=1, and the substitution
+        COUNT="$(printf '%s' "$AFTER" | grep -o '"schedule"' | wc -l | tr -d ' ')"
+      inherits grep's exit 1 through pipefail. Both aborted the script before the
+      gate table, with no error message — a dry run that appeared to finish and
+      actually stopped halfway. Fixed with explicit if-blocks and `|| true` on the
+      counting substitutions; `run()` now records a failed command as a finding
+      instead of killing the run, so the verification gates are always reached.
+  (b) an overclaiming gate. Gate 1 printed "registered and active" purely because the
+      script had not exited — it had not probed anything in DRY_RUN. That is the same
+      sin as "Backup Enabled: yes". It now reports `not probed (DRY_RUN does not touch
+      pbs01)` and only says "yes" after a successful `pvesh get …/storage/pbs01/status`.
+
+Design improvement: no second copies of secrets. The evidence-push script resolves
+credentials in the order `$PBS_TOKEN_FILE` → PVE's own `/etc/pve/priv/storage/pbs01.pw`
+→ legacy fallback, and the client-side key the same way (`…pbs01.enc` first), so there
+is exactly one key per datastore and the secret is typed exactly once, in the PVE form.
+Snapshot landing is now proven through PVE's own storage-content API rather than
+deferred to "check pbs01 manually".
+
+Verification of this step:
+  $ shellcheck -x hv01-backup-onboard.sh hv01-archive-to-pbs.sh hv01-config-backup.sh
+    hv01-health-check.sh vaultwarden-backup.sh        → clean
+  $ host vs repo sha256 (first 12) for the four installed scripts
+    20286c5e057b / cad7c2ecb910 / c1a56589d717 / 440d40de0be1   identical on both sides
+  $ DRY_RUN=1 hv01-backup-onboard.sh                  → reaches the gate table, rc=0,
+    gates reported honestly: 1 not probed, 2 NO (jobs.cfg=1 scheduler=0), 3 no,
+    4 NO, 5 skipped
+
+State at the end of this step (re-measured, not assumed): `/etc/pve/priv/storage/
+pbs01.pw` is still **1 byte** — the operator's password save has not happened yet —
+so `pbs01` remains `inactive` with `401 Unauthorized`, `/cluster/backup` is still
+`[]`, and **VMIDs 100/101/102 still have no off-host backup**. The remaining action is
+one browser field: PVE → pve-prod-hv01 → Storage → pbs01 → Edit → Password → OK
+(a paste-proof terminal alternative is `sudo sh -c 'umask 077; cat > /etc/pve/priv/
+storage/pbs01.pw'` then paste, Enter, Ctrl-D — never `read -rs` inside a pasted block,
+which is what corrupted the two earlier attempts).
+
+24. "CAN'T LOG IN TO THE VAULT" — WAS NOT THE PASSWORD; HTTPS FRONT DOOR ADDED
+------------------------------------------------------------------------------
+Operator screenshot at http://127.0.0.1:8090 showed the toast:
+  "An error has occurred. Insecure URL not allowed. All URLs must use HTTPS."
+Evidence that the master password was never even tested:
+  $ docker logs --since 30m jol-vaultwarden      → EMPTY (no auth request arrived)
+  $ docker inspect jol-vaultwarden (env)         → DOMAIN=http://127.0.0.1:8090
+  $ ss -tlnp                                     → only 127.0.0.1:8090, no TLS listener
+  $ curl -k https://127.0.0.1:8090/alive         → 000 (no TLS on that port)
+  $ command -v caddy nginx apache2               → none installed
+Root cause: the bundled web vault requires a secure context for WebCrypto
+(Vaultwarden README: "it will only work if you enable HTTPS"), and this instance was
+ever plain HTTP. The client refuses before submitting credentials, so a "wrong
+password" conclusion was not available.
+
+Change made (additive, reversible, no secret touched): scripts/maintenance/
+vaultwarden-tls-frontdoor.sh — a loopback-only TLS front door using the nginx image
+ALREADY present locally (nginx:1.27-alpine; nothing pulled, no host package
+installed), with a locally generated self-signed certificate for 127.0.0.1
+(SHA256 44:C3:85:1C:72:CE:4E:DD:80:78:94:B5:86:C6:1C:5D:5C:92:DD:2D:1C:65:08:74:C3:05:A9:E1:97:4A:C8:61).
+Verified after the change:
+  https://127.0.0.1:8443/alive -> HTTP 200        (new TLS path works)
+  LISTEN 127.0.0.1:8443 only                      (never 0.0.0.0)
+  plain http://127.0.0.1:8090/alive -> 200        (vault untouched)
+  jol-vaultwarden: running, healthy, started 2026-10-21T12:17:28Z (no restart)
+Teardown: ./vaultwarden-tls-frontdoor.sh --remove
+
+Standing consequence for the fleet: the vault has no TLS endpoint of its own and no
+backup, so the operator's access to every fleet credential depends on a helper
+container and on remembering one unrecoverable passphrase. Both are tracked as V4/V5
+in docs/architecture/secret-flow.md. If the master password proves unrecoverable, the
+backup work can still proceed without the vault: pbs01 console → offline root reset →
+fresh token in the PBS UI → paste into PVE (scripted end to end).
+
+25. THE MASTER PASSWORD WORKS — AND THE VAULT IS EMPTY (custody claim now in doubt)
+-----------------------------------------------------------------------------------
+After the HTTPS front door went up, the operator logged in successfully at
+https://127.0.0.1:8443/#/vault. The screen shows:
+
+  "All vaults" → "No items in the vault"
+  onboarding banner still present ("Get started with your vault — 2 of 3 complete")
+  server-side corroboration: db.sqlite3-wal modified 2026-10-22 15:34 (the login wrote
+  session/device state), while db.sqlite3 itself is untouched since 2026-08-10
+
+So the password was never the problem, and the vault contains no fleet credentials:
+no `prod/pbs/pbs01/…`, no pbs01 root password, no PBS token secret. That directly
+contradicts two recorded claims:
+
+  docs/servers/pbs01.md, First Audit 2026-08-01: "New root password stored in password
+  manager (not in repo)" and "PVE backup credentials: user `pve-backup@pbs`, token
+  `pve-backup@pbs!pve-token` (secret in password manager)"
+
+⚠ Before treating that as false, two 5-second checks remain open to the operator:
+**Trash** and **Archive** in the vault's left rail (a deleted item would explain
+everything), and whether a second account exists (avatar top-right → switch account;
+Settings → Account shows the email and the vault fingerprint). If the items are in
+Trash, restore them; if they are in another account, that account is the real source
+of truth and this empty one is a stray — which would itself be a custody finding.
+
+Consequence if the vault really is empty: the credentials were never under custody at
+all. The path to backups no longer runs through the vault — it is the pbs01 console
+(offline `root` reset, then a freshly generated token in the PBS UI), after which the
+vault must be **populated** with what should have been in it from the start:
+pbs01 `root` password, the new PBS token secret, `/etc/pve/priv/storage/pbs01.enc`
+(client-side key — without it the backups are unreadable), and the switch/hypervisor
+credentials the docs already assume are there. Then run
+`scripts/maintenance/vaultwarden-backup.sh` and move a copy off this machine, because
+an empty-or-lost vault on an unencrypted desktop disk is not a control.
+
+This is also the strongest evidence yet for the rule that started the session: a
+documented control is a hypothesis. "Secret stored in the password manager" was
+recorded on 2026-08-01 and is still unverified on 2026-10-22 — three weeks of
+planning, one console trip and a cable fault later.

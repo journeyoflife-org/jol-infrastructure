@@ -1,0 +1,27 @@
+# =============================================================================
+# postgresql-jol-tfstate.conf — Postgres drop-in (conf.d/)
+# Managed by the terraform_state_db Ansible role; do not edit by hand.
+# =============================================================================
+# --- Network ---
+listen_addresses = 'localhost,{{ terraform_state_db_bind_address }}'
+port = {{ terraform_state_db_port }}
+
+# --- TLS ---
+ssl = on
+ssl_cert_file = '{{ terraform_state_db_tls_dir }}/server.crt'
+ssl_key_file = '{{ terraform_state_db_tls_dir }}/server.key'
+ssl_min_protocol_version = 'TLSv1.2'
+
+# --- Authentication ---
+password_encryption = 'scram-sha-256'
+
+# --- Audit logging (SOC 2 CC7.2) ---
+log_connections = on
+log_disconnections = on
+log_statement = 'ddl'
+log_line_prefix = '%m [%p] %u@%d '
+
+# --- Performance (state DB is small; keep footprint minimal) ---
+shared_buffers = '128MB'
+work_mem = '4MB'
+max_connections = 20

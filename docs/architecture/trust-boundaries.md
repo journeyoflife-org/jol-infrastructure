@@ -89,5 +89,10 @@ llm-prod-lt01 (10.30.30.10, bare-metal, VLAN 30)
 - A.8.2 (Privileged access): Root SSH key-only (prohibit-password), AllowUsers restricted
 - A.8.5 (Secure authentication): Key-only SSH, fail2ban, MaxAuthTries 3
 - A.8.20 (Network security): VLAN segmentation, MikroTik firewall, nftables/UFW
-- A.8.13 (Information backup): PBS nightly encrypted backups (VMs from
-  pve-prod-hv01; model store from llm-prod-lt01), RPO 24h / RTO 4h
+- A.8.13 (Information backup): model store from llm-prod-lt01 → pbs01 nightly,
+  client-side encrypted, restore drill PASS 2026-08-11. VMs from pve-prod-hv01 →
+  pbs01 is the **design**, not the current state: verified 2026-10-21 that host has
+  no PBS datastore and no valid backup job, so VMIDs 100/101/102 are **unbacked**
+  and A.8.13 is NOT satisfied for them (RPO 24h / RTO 4h unmet). Remediation:
+  `docs/runbooks/hv01-storage-backup-reconfiguration.md`; evidence:
+  `docs/compliance/evidence/hv01-storage-inspection-20261021.txt`

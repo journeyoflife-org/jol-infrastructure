@@ -427,3 +427,28 @@ ping -c 2 10.10.10.1   # should resolve gateway MAC
 # [COMMENT] Option 2: If ARP still incomplete, check switch port
 # (requires network device access via Vaultwarden credentials)
 ```
+
+---
+
+## Correction (2026-10-21) — V11 "PBS VM backups (nightly)" was never verified
+
+V11 in the verification table recorded `pve-prod-hv01 → pbs01; client-side
+encrypted; nightly 02:00; RPO 24h / RTO 4h` on the authority of
+`docs/servers/pve-prod-hv01.md` §Backup Policy. Live probes on 2026-10-21 falsify
+it: no PBS datastore is registered on the host (`/etc/pve/priv/storage/` absent,
+`storage.cfg` = `local`, `local-lvm`, `hdd-iso`), `pvesh get /cluster/backup`
+returns `[]` because the hand-written `job-vm100-nightly` section is rejected by the
+parser, and the only backup artifact anywhere is a manual dump of VMID 100 dated
+2026-08-12 sitting on the same NVMe as the VM. VMIDs 101 and 102 have never been
+backed up. **V11 status: NOT SATISFIED** — CC7.1, GDPR Art. 32 and the A.8.13/A.12.3.1
+mapping in this audit do not hold for backup of the AI estate until
+`docs/runbooks/hv01-storage-backup-reconfiguration.md` phases 4–7 close.
+
+Method lesson recorded for future audits in this repo: a backup control is only
+*verified* when three independent probes agree — (1) the datastore exists on the
+client, (2) the job is present in the scheduler API and not merely in `jobs.cfg`,
+(3) a snapshot with a fresh timestamp exists on the target. Agreement of docs with
+docs is not evidence. Compounding factor found the same day: the host watchdog had
+been producing 415 false CRITICALs since 2026-07-31 (cron PATH missing `/usr/sbin`),
+so the alert channel that should have caught this was itself broken — see
+`docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §5–§6.

@@ -1,0 +1,86 @@
+# =============================================================================
+# role: terraform_runner — defaults
+# Self-hosted Terraform/GitHub-Actions runner on the Proxmox management VLAN.
+#
+# Design (ratified 2026-09-25, change record JOL-TFRUNNER-20260925-01):
+#   1. ONE Tier-1 tree per runner (§0.2 segregation). This repo = CHURCH tree
+#      (journeyoflife-org). The marketplace tree (jolarca-dev) uses a SEPARATE
+#      runner defined in jolarca-infrastructure — never both here.
+#   2. Remote state backend = dedicated PostgreSQL (`pg` backend) with native
+#      advisory-lock state locking; the AWS S3 backend in terraform/bootstrap is
+#      FROZEN and never applied. MinIO was rejected (no working lock on TF 1.9.x
+#      + upstream OSS archived 2026-04-25) — see change record decision 2.
+#   3. Ephemeral GitHub Actions runner (one job per process) via JIT config.
+#   4. Pinned + SHA256-verified toolchain (supply-chain integrity, SOC 2 CC8.1).
+#   5. NO long-lived secrets baked in: SOPS age key, Proxmox API token secret
+#      and the JIT/registration token are injected at runtime from Vaultwarden.
+# =============================================================================
+---
+# --- Pinned toolchain (SHA256 from official release checksums, verified) ---
+terraform_version: "1.9.8"
+terraform_sha256: "186e0145f5e5f2eb97cbd785bc78f21bae4ef15119349f6ad4fa535b83b10df8"
+
+# Proxmox provider (bpg/proxmox) — version pinned; each Terraform config MUST
+# also commit .terraform.lock.hcl so provider hashes are reproducible.
+terraform_proxmox_provider_source: "bpg/proxmox"
+terraform_proxmox_provider_version: "0.6.3"
+
+sops_version: "3.13.3"
+sops_sha256: "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b"
+
+# --- Unprivileged service account (no sudo, no interactive SSH login) ---
+terraform_runner_user: terraform
+terraform_runner_group: terraform
+terraform_runner_home: /opt/terraform-runner
+
+# --- Directory layout (strict perms; auditd-watched) ---
+terraform_work_dir: "{{ terraform_runner_home }}/work"
+terraform_state_cache_dir: "{{ terraform_runner_home }}/state"
+terraform_secrets_dir: "{{ terraform_runner_home }}/secrets"
+terraform_plugin_cache_dir: "{{ terraform_runner_home }}/.plugin-cache"
+terraform_cli_config_file: "{{ terraform_runner_home }}/.terraformrc"
+
+# --- GitHub Actions self-hosted runner ---
+actions_runner_enabled: true
+# ephemeral = one job per process, JIT-registered (recommended, ratified).
+# service   = persistent registration via a one-time registration token.
+actions_runner_mode: ephemeral
+actions_runner_version: "2.337.0"
+actions_runner_sha256: "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
+actions_runner_api: "https://api.github.com"
+actions_runner_org: journeyoflife-org      # CHURCH tree only (see §0.2 note above)
+actions_runner_name_prefix: tf-runner-church
+actions_runner_group_id: 1
+actions_runner_work_folder: _work
+actions_runner_labels:
+  - self-hosted
+  - linux
+  - x64
+  - terraform
+  - proxmox
+  - church
+# Runtime-injected (never committed): JIT token (ephemeral) or one-time
+# registration token (service). Empty here by design — deploy supplies it.
+actions_runner_jit_token: ""
+actions_runner_registration_token: ""
+
+# --- Remote state backend (dedicated PostgreSQL, `pg` backend, mgmt VLAN) ---
+# Locking: native Postgres advisory locks (auto-release on session abort —
+# ideal for the ephemeral runner). The DB must exist before `terraform init`;
+# it is provisioned by the `terraform_state_db` role on tfstate-prod-01
+# (VMID 205, 10.60.60.32). Coordinates below are NON-SECRET; the tfstate role
+# PASSWORD (PGPASSWORD) is injected at runtime from Vaultwarden (§0.1).
+terraform_state_db_host: "10.60.60.32"
+terraform_state_db_port: 5432
+terraform_state_db_name: "terraform_state"
+terraform_state_db_user: "tfstate"
+terraform_state_db_sslmode: "require"
+terraform_state_db_schema: "terraform_remote_state"
+
+# --- Proxmox API target (least-privilege token, scoped to managed VMIDs) ---
+proxmox_api_endpoint: "https://10.60.60.10:8006/api2/json"
+proxmox_api_token_id: "terraform-runner@pve!tf-church"
+# proxmox_api_token_secret is injected at runtime — NEVER stored in inventory.
+
+# --- auditd (tamper-evident watch on secret + state material, SOC 2 CC6.1) ---
+terraform_runner_audit_key: jol_secrets

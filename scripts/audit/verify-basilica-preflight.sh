@@ -11,7 +11,6 @@
 # Usage:
 #   ./scripts/audit/verify-basilica-preflight.sh              # all checks
 #   ./scripts/audit/verify-basilica-preflight.sh --verbose    # show evidence
-#   ./scripts/audit/verify-basilica-preflight.sh --json       # machine-readable output
 #
 # Exit codes:
 #   0  all checks PASS
@@ -28,10 +27,8 @@ HUB="$REPO_ROOT/jol-hub"
 BACKEND_PLATFORM="$REPO_ROOT/jol-backend-platform"
 DEPLOY="$REPO_ROOT/jol-deploy"
 BITRIX="$REPO_ROOT/jol-bitrix24-integration"
-INFRA="$REPO_ROOT/jol-infrastructure"
 
 VERBOSE=0
-JSON_OUT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
@@ -41,7 +38,6 @@ RESULTS=()
 for arg in "$@"; do
   case "$arg" in
     --verbose) VERBOSE=1 ;;
-    --json)    JSON_OUT=1 ;;
     -h|--help)
       sed -n '3,/^# ====.*$/p' "$0" | head -n -1 | sed 's/^# \?//'
       exit 0 ;;

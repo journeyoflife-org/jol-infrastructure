@@ -1,0 +1,13 @@
+# =============================================================================
+# jol-terraform-runner.rules — auditd watches on runner secret + state material
+# GDPR Art. 30 / SOC 2 CC6.1 / CC7.2 — tamper-evident audit trail.
+# Managed by the terraform_runner Ansible role.
+# =============================================================================
+-w {{ terraform_secrets_dir }} -p wa -k {{ terraform_runner_audit_key }}
+-w {{ terraform_secrets_dir }}/age.key -p wa -k {{ terraform_runner_audit_key }}
+-w {{ terraform_secrets_dir }}/runner.secrets.env -p wa -k {{ terraform_runner_audit_key }}
+-w {{ terraform_state_cache_dir }} -p wa -k tf_state
+-w {{ terraform_runner_home }}/runner.env -p wa -k {{ terraform_runner_audit_key }}
+-w /usr/local/bin/terraform -p x -k tf_exec
+-w /usr/local/bin/sops -p x -k tf_exec
+-w /etc/systemd/system/terraform-runner.service -p wa -k tf_runner_unit

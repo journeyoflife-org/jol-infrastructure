@@ -1,0 +1,47 @@
+# =============================================================================
+# 40_layout.yml — secure directory layout for the runner
+# work/    = Actions runner checkout + terraform working dirs (runner-owned)
+# state/   = LOCAL state cache ONLY; authoritative state is the remote backend
+# secrets/ = 0700, runtime-injected key material (age key, proxmox token)
+# =============================================================================
+---
+- name: Create runner working directory
+  ansible.builtin.file:
+    path: "{{ terraform_work_dir }}"
+    state: directory
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    mode: "0750"
+
+- name: Create local state cache directory
+  ansible.builtin.file:
+    path: "{{ terraform_state_cache_dir }}"
+    state: directory
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    mode: "0750"
+
+- name: Create plugin cache directory
+  ansible.builtin.file:
+    path: "{{ terraform_plugin_cache_dir }}"
+    state: directory
+    owner: "{{ terraform_runner_user }}"
+    group: "{{ terraform_runner_group }}"
+    mode: "0750"
+
+- name: Create secrets directory (root-owned, runner-readable, 0750)
+  ansible.builtin.file:
+    path: "{{ terraform_secrets_dir }}"
+    state: directory
+    owner: root
+    group: "{{ terraform_runner_group }}"
+    mode: "0750"
+
+- name: Warn that runtime secrets are NOT provisioned by this role (audit trail)
+  ansible.builtin.debug:
+    msg: >-
+      Secrets directory {{ terraform_secrets_dir }} created empty. The SOPS age
+      private key (age.key) and the Proxmox API token secret MUST be injected at
+      runtime from Vaultwarden (0400 root:{{ terraform_runner_group }}). This role
+      never writes secret material (AGENTS.md §0.1). Record the injection in the
+      change log.

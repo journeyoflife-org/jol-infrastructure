@@ -1,0 +1,19 @@
+# =============================================================================
+# 60_auditd.yml — tamper-evident watches on Postgres config + TLS material
+# GDPR Art. 30 / SOC 2 CC6.1 / CC7.2.
+# =============================================================================
+---
+- name: Deploy terraform-state-db audit rules
+  ansible.builtin.template:
+    src: audit-tfstate.rules.j2
+    dest: /etc/audit/rules.d/jol-tfstate.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: tfstate reload auditd
+
+- name: Ensure auditd is enabled and running
+  ansible.builtin.systemd_service:
+    name: auditd
+    enabled: true
+    state: started

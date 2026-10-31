@@ -1,0 +1,48 @@
+# =============================================================================
+# 10_tls.yml — self-signed TLS certificate for Postgres
+# Baseline: sslmode=require encrypts in transit. Full chain verification
+# (sslmode=verify-full) requires the fleet CA — tracked as a hardening TODO.
+# Uses community.crypto (openssl_privatekey / openssl_csr / x509_certificate).
+# =============================================================================
+---
+- name: Create TLS directory (postgres-readable)
+  ansible.builtin.file:
+    path: "{{ terraform_state_db_tls_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Generate private key (RSA 4096, postgres-owned, 0600)
+  community.crypto.openssl_privatekey:
+    path: "{{ terraform_state_db_tls_dir }}/server.key"
+    owner: postgres
+    group: postgres
+    mode: "0600"
+    size: 4096
+    type: RSA
+
+- name: Generate CSR
+  community.crypto.openssl_csr:
+    path: "{{ terraform_state_db_tls_dir }}/server.csr"
+    privatekey_path: "{{ terraform_state_db_tls_dir }}/server.key"
+    common_name: "{{ terraform_state_db_tls_cn }}"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+
+- name: Generate self-signed certificate
+  community.crypto.x509_certificate:
+    path: "{{ terraform_state_db_tls_dir }}/server.crt"
+    privatekey_path: "{{ terraform_state_db_tls_dir }}/server.key"
+    csr_path: "{{ terraform_state_db_tls_dir }}/server.csr"
+    provider: selfsigned
+    selfsigned_not_after: "+{{ terraform_state_db_tls_days }}d"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+
+- name: Remove CSR (no longer needed after cert generation)
+  ansible.builtin.file:
+    path: "{{ terraform_state_db_tls_dir }}/server.csr"
+    state: absent

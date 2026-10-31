@@ -1,0 +1,15 @@
+# =============================================================================
+# 40_firewall.yml — UFW allow 5432/tcp from the runner only
+# The base_firewall role runs earlier in the playbook and sets default deny
+# incoming; this task adds the single allowed source for the state DB.
+# =============================================================================
+---
+- name: Allow PostgreSQL 5432/tcp from the runner only
+  community.general.ufw:
+    rule: allow
+    direction: in
+    port: "{{ terraform_state_db_port | string }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "Terraform state DB — runner only"
+  loop: "{{ terraform_state_db_allowed_sources }}"

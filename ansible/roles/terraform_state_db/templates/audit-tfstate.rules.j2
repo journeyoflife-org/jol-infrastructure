@@ -1,0 +1,9 @@
+# =============================================================================
+# jol-tfstate.rules — auditd watches on Postgres config + TLS material
+# Managed by the terraform_state_db Ansible role.
+# =============================================================================
+-w {{ postgres_conf_dir }}/pg_hba.conf -p wa -k {{ terraform_state_db_audit_key }}
+-w {{ postgres_conf_dir }}/conf.d/jol-tfstate.conf -p wa -k {{ terraform_state_db_audit_key }}
+-w {{ terraform_state_db_tls_dir }}/server.key -p wa -k {{ terraform_state_db_audit_key }}
+-w {{ terraform_state_db_tls_dir }}/server.crt -p wa -k {{ terraform_state_db_audit_key }}
+-w {{ terraform_state_db_backup_dir }} -p wa -k tfstate_backup

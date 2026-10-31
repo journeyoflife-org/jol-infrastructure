@@ -1,6 +1,11 @@
 # =============================================================================
 # role: backup_client — guest agent + app-level snapshot scheduling
-# VM-level backups: PBS via pve-prod-hv01 (RPO 24h / RTO 4h).
+# VM-level backups: TARGET is PBS (pve-prod-hv01 -> pbs01, RPO 24h / RTO 4h).
+# ⚠ STATUS 2026-10-21: that path is NOT in force — pve-prod-hv01 has no PBS
+#   datastore registered and no valid backup job, so guests in this role have no
+#   off-host VM backup. Do not treat "backup_enabled: true" here or in inventory
+#   as evidence of a backup. Close via
+#   docs/runbooks/hv01-storage-backup-reconfiguration.md.
 # qemu-guest-agent enables fs-consistent snapshots (fixes "agent configured
 # but not running" warning observed in pre-rag-deploy snapshot).
 # =============================================================================

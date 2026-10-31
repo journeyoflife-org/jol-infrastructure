@@ -1,0 +1,48 @@
+# =============================================================================
+# provision-terraform-state-db.yml
+# Provisions the dedicated PostgreSQL state-backend VM (tfstate-prod-01) on
+# prox01, VLAN 60 (management).
+#
+# Sequence:
+#   1. Operator creates VM 205 on prox01 from the Ubuntu 24.04 cloud-init
+#      template, attaching ansible/roles/terraform_state_db/files/
+#      cloud-init-userdata.yaml (base OS bootstrap). Operator also creates a
+#      ZFS-native-encrypted dataset on prox01 for the VM disk.
+#   2. Run this playbook with the tfstate role password supplied via --extra-vars
+#      (sourced from Vaultwarden at deploy time — NEVER committed).
+#
+# Usage:
+#   cd ansible/
+#   ansible-playbook playbooks/provision-terraform-state-db.yml \
+#     -e "terraform_state_db_password=<from Vaultwarden>"
+#
+# SOC 2 CC8.1 — changes must be reviewed and merged before execution.
+# =============================================================================
+---
+- name: Provision hardened PostgreSQL state backend (tfstate-prod-01)
+  hosts: tf_state_db
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common
+      tags: [common, baseline]
+
+    - role: time_sync
+      tags: [time_sync, baseline]
+
+    - role: ssh
+      tags: [ssh, hardening]
+
+    - role: base_firewall
+      tags: [firewall, hardening]
+
+    - role: monitoring
+      tags: [monitoring, observability]
+
+    - role: backup_client
+      tags: [backup, compliance]
+      when: backup_client_enabled | default(true) | bool
+
+    - role: terraform_state_db
+      tags: [terraform_state_db]
