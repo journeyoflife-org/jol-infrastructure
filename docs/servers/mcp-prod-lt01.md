@@ -11,7 +11,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | Model Context Protocol server, tool registry, agent integrations |
 | **SSH Policy**     | key-only                                   |
-| **Backup Enabled** | **NO (verified 2026-10-21)** — host pve-prod-hv01 has no PBS datastore and no valid backup job; VMID 101 has never been dumped |
+| **Backup Enabled** | **yes (verified 2026-10-31)** — nightly `vzdump` on pve-prod-hv01 → pbs01 ns `jol-hv01`; VMID 101 newest snapshot `2026-10-31T00:00:10Z` |
 | **Monitoring**     | yes (node-exporter)                        |
 | **VMID**           | 101                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -55,15 +55,28 @@ UFW: default deny incoming, allow outgoing, enabled at boot (2026-08-03).
 
 ## Backup Policy
 
-- ⚠ NOT IN FORCE (verified 2026-10-21): no backup of VMID 101 exists anywhere.
-  pve-prod-hv01 has no PBS datastore registered; its only job entry is rejected by
-  the scheduler parser (`pvesh get /cluster/backup` → `[]`). The only recovery path
-  would be re-deploy from the bare repo `/opt/jol/git/jol-mcp-servers.git` plus the
-  guest's `/etc/jol-mcp/mcp.env` — both single copies, and no restore has ever been
-  tested. ⚠ UNVERIFIED — manual check required on whether that rebuild is complete.
-  Procedure to close: `docs/runbooks/hv01-storage-backup-reconfiguration.md`.
-- Target: VM-level backup via PBS (nightly)
-- RPO: 24 h | RTO: 4 h
+**Working baseline (verified 2026-10-31T20:36Z — read-only probes in
+`docs/compliance/evidence/hv01-backup-baseline-20261031.txt`)**
+
+- Off-host VM backup **IS in force**: hypervisor job `hv01-nightly-pbs` (`schedule 02:00`
+  Europe/Vilnius, `vmid 100,101,102`, `mode snapshot`, `compress zstd`, `prune-backups
+  keep-daily=7,keep-weekly=4,keep-monthly=6`, `repeat-missed 1`) → datastore `pbs01` (active),
+  namespace `jol-hv01`.
+- 9 consecutive scheduled OK runs (local nights 2026-10-23 → 2026-10-31); VMID 101 holds 7
+  groups, newest `2026-10-31T00:00:10Z` ⇒ **RPO 24 h met** (age 20.6 h at probe time).
+- The bare repo `/opt/jol/git/jol-mcp-servers.git` and `/etc/jol-mcp/mcp.env` are **no longer
+  single copies** — both are inside the VMID 101 disk image that is now replicated off-host and
+  client-side encrypted.
+- ⚠ **Restore is drilled for VMID 102 only** (2026-10-22, scratch VMID 199). No vm/101-specific
+  restore has been performed: `⚠ UNVERIFIED — manual check required` before this group's RTO claim.
+- Still open: the 3-2-1 "one off-site" leg (pbs01 `remote list` → empty, verified 2026-10-31);
+  `/var/log/jol-mcp/audit.jsonl` inherits the same single-site exposure.
+
+RPO: 24 h (met) | RTO: 4 h (target, not drilled for this VMID).
+
+**History**: on 2026-10-21 this page claimed a nightly PBS backup that did not exist; the
+same-day inspection found no datastore on the hypervisor and a `jobs.cfg` section the scheduler
+parser rejected. Recorded then, closed 2026-10-22 by `docs/runbooks/hv01-storage-backup-reconfiguration.md`.
 
 ## Monitoring Expectations
 
@@ -119,6 +132,8 @@ UFW: default deny incoming, allow outgoing, enabled at boot (2026-08-03).
 | 2026-08-12 | Audit runtime fix: `/var/log/jol-mcp` perms (mcp-svc 0750), logrotate (14d), units restarted; smoke test 4/4 PASS, audit.jsonl live | /tmp/mcp_smoke.py run 2026-08-12 |
 | 2026-08-12 | systemd hardening drop-ins on all 4 MCP units, rolling restart; exposure 6.3 MEDIUM | systemd-analyze security |
 | 2026-08-18 | **M3 remediation** (P2 gate finding 2026-08-17): snapshot `pre-m3-fix-20260818-0014`; `/etc/jol-mcp/mcp.env` backed up (`.bak.20260818-0014`, 640 root:mcp-svc preserved) + `JOL_MCP_GIT_REPO_ROOT=/opt/jol/repos` added; inspectable work-tree clone provisioned at `/opt/jol/repos/jol-mcp-servers` (from `/opt/jol/git/jol-mcp-servers.git`, HEAD c226602, owned `mcp-svc:mcp-svc` — git safe.directory requires owner == invoking user); `jol-git-server` restarted; end-to-end MCP `tools/call git_status` → "Working tree clean" + audit.jsonl `Success`; re-gate 14/14 PASS (guest-exec-mcp-prod-lt01-20260818 log, jol-compliance audit-evidence) | qm guest exec session 2026-08-18 |
+| 2026-10-22 | VMID 101 included in the new hypervisor backup job `hv01-nightly-pbs` (first manual `vzdump` OK, 54 GB group in ns `jol-hv01`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §17 |
+| 2026-10-31 | **Backup baseline re-verified read-only; "Backup Enabled: NO (2026-10-21)" corrected to YES.** 9 consecutive scheduled OK nightlies, newest vm/101 group `2026-10-31T00:00:10Z`; vm/101 restore drill still NOT performed (the 2026-10-22 drill used vm/102) | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
 
 ## Maintenance Notes
 

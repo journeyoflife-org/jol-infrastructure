@@ -17,7 +17,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | Hermes agent orchestration, workflows, automation |
 | **SSH Policy**     | key-only (ENFORCED 2026-09-01) |
-| **Backup Enabled** | **NO (verified 2026-10-21)** — host pve-prod-hv01 has no PBS datastore and no valid backup job; VMID 102 has never been dumped |
+| **Backup Enabled** | **yes (verified 2026-10-31)** — nightly `vzdump` on pve-prod-hv01 → pbs01 ns `jol-hv01`; VMID 102 newest snapshot `2026-10-31T00:00:13Z`, and this is the group the 2026-10-22 restore drill proved |
 | **Monitoring**     | yes (node-exporter 1.7.0, active 2026-09-01) |
 | **VMID**           | 102                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -66,13 +66,30 @@ All data residency confined to EU/EEA (GDPR Art.25).
 
 ## Backup Policy
 
-- ⚠ NOT IN FORCE (verified 2026-10-21): no backup of VMID 102 exists. The hypervisor
-  claim below was never true (`pvesh get /cluster/backup` → `[]`, no PBS datastore on
-  pve-prod-hv01). Impact is bounded: this VM is a definition-only host with no
-  runtime state (C1 resolved 2026-09-19), so rebuild from `jol-hermes-agents` is the
-  documented recovery. Procedure to close: `docs/runbooks/hv01-storage-backup-reconfiguration.md`.
-- Target: VM-level backup via PBS (nightly)
-- RPO: 24 h | RTO: 4 h
+**Working baseline (verified 2026-10-31T20:36Z — read-only probes in
+`docs/compliance/evidence/hv01-backup-baseline-20261031.txt`)**
+
+- Off-host VM backup **IS in force**: hypervisor job `hv01-nightly-pbs` (`schedule 02:00`
+  Europe/Vilnius, `vmid 100,101,102`, `mode snapshot`, `compress zstd`, `prune-backups
+  keep-daily=7,keep-weekly=4,keep-monthly=6`, `repeat-missed 1`) → datastore `pbs01` (active),
+  namespace `jol-hv01`.
+- 9 consecutive scheduled OK runs (local nights 2026-10-23 → 2026-10-31); VMID 102 holds 7
+  groups, newest `2026-10-31T00:00:13Z` ⇒ **RPO 24 h met** (age 20.6 h at probe time).
+- **Restore drill PASSED for THIS VMID** on 2026-10-22: `qmrestore` of `vm/102/2026-10-22T20:42:23Z`
+  to scratch VMID 199 (task OK, 50 GiB in 9.4 s, decrypted with the stored key), booted with `net0`
+  removed, guest agent responsive after 80 s, then destroyed clean. This is the only AI-estate VMID
+  with a proven restore of its own group.
+- Impact framing unchanged: VMID 102 is a definition-only host with no runtime state (C1 resolved
+  2026-09-19), so rebuild from `jol-hermes-agents` remains the documented recovery path; the nightly
+  backup removes the single-copy risk of whatever has accumulated on the disk since.
+- Still open: the 3-2-1 "one off-site" leg — pbs01 `proxmox-backup-manager remote list` returns
+  empty (verified 2026-10-31), so hypervisor and backup custodian still share one site.
+
+RPO: 24 h (met) | RTO: 4 h (met for VMID 102 — the only drilled group)
+
+**History**: on 2026-10-21 this page claimed a nightly PBS backup that had never existed (no
+datastore on the hypervisor; `pvesh get /cluster/backup` → `[]`). Closed 2026-10-22 by
+`docs/runbooks/hv01-storage-backup-reconfiguration.md`.
 
 ## Monitoring Expectations
 
@@ -98,3 +115,5 @@ All data residency confined to EU/EEA (GDPR Art.25).
 |------------|--------|----------|
 | 2026-09-01 | **CRITICAL AUDIT FINDING**: Hardening probes executed (admin01 → pbs01 agent-forward → her-prod-lt01). Result: `harden-ai-hosts.yml` NEVER applied. 17/17 checks FAIL. Finding H1 = CRITICAL. | `docs/compliance/ai-services-audit-20260901.md` §1.1 |
 | 2026-09-01 | **H1 REMEDIATION EXECUTED**: Snapshot `pre-harden-20260901-2024`. All hardening roles applied manually (Ansible not available on control path): packages (auditd/fail2ban/chrony/aide/qemu-guest-agent/node-exporter), sysctl (kptr_restrict=2, rp_filter=1), SSH drop-in (key-only, root=no, MaxAuthTries=3, LogLevel=VERBOSE), UFW (default deny + rules), AIDE init + nightly cron, timezone Europe/Vilnius, directory layout. UFW blocked pbs01 relay path (10.10.10.0/24) — fixed via `qm guest exec` through hypervisor. Final verification: **18/19 PASS** (AIDE DB exists, `aide --check` needs config — cron handles nightly). node_exporter v1.7.0 from apt (fleet pin 1.8.2 — minor version gap, functional). | live session 2026-09-01 |
+| 2026-10-22 | VMID 102 backed up off-host for the first time and **restored in a drill** (`vm/102/2026-10-22T20:42:23Z` → scratch VMID 199 → destroyed clean) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §17 |
+| 2026-10-31 | **Backup baseline re-verified read-only; "Backup Enabled: NO (2026-10-21)" corrected to YES.** 9 consecutive scheduled OK nightlies, newest vm/102 group `2026-10-31T00:00:13Z`; still single-site (no pbs01 remote sync) | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |

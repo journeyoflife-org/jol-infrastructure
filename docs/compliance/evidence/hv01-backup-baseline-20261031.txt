@@ -1,0 +1,181 @@
+================================================================================
+hv01 / pbs01 backup baseline — read-only re-verification
+Date:    2026-10-31T20:35Z – 20:45Z (hv01 local Europe/Vilnius, UTC+2 after the
+         2026-10-25 DST change; hv01 clock offset observed as +0200 in `stat` output)
+From:    operator workstation 192.168.88.249 -> ssh `pve` (root@10.60.60.20),
+         ssh `pbs01` (root@10.10.10.30, ADR-008 scoped /32 path)
+Scope:   READ-ONLY. No configuration mutation, no secret read/printed, no delete.
+Rule:    §0.4 — every claim below is paired with the command that produced it.
+================================================================================
+
+1. DATASTORE + JOB REGISTRY (hv01)
+-----------------------------
+$ date -u
+Sat Oct 31 08:35:56 PM UTC 2026                      (host clock agrees)
+
+$ pvesm status | grep -w pbs01
+pbs01             pbs     active               0               0               0    0.00%
+
+$ pvesh get /cluster/backup --output-format yaml
+- comment: hv01 AI estate nightly (VMIDs 100 101 102) -> pbs01 ns jol-hv01
+  compress: zstd
+  enabled: 1
+  id: hv01-nightly-pbs
+  mailnotification: failure
+  mode: snapshot
+  next-run: 1793491200            # 2026-10-31T23:00:00Z = 2026-11-01 02:00 local
+  prune-backups: {keep-daily: '7', keep-monthly: '6', keep-weekly: '4'}
+  repeat-missed: 1
+  schedule: 02:00
+  storage: pbs01
+  type: vzdump
+  vmid: 100,101,102
+
+2. SNAPSHOTS ACTUALLY ON pbs01 (via PVE content endpoint, no credentials used)
+-----------------------------------------------------------------------------
+$ pvesh get /nodes/pve-prod-hv01/storage/pbs01/content --content backup \
+      --output-format json
+vm/100 (7 groups, newest) 2026-10-31T00:00:07Z   size 107374183514 (declared 100 GB)
+vm/101 (7 groups, newest) 2026-10-31T00:00:10Z   size  53687092314 (declared  50 GB)
+vm/102 (7 groups, newest) 2026-10-31T00:00:13Z   size  53687092324 (declared  50 GB)
+Older groups per VM: 2026-10-24T23:00:0xZ, 26T00:00, 27T00:00, 28T00:00, 29T00:00, 30T00:00Z
+Encryption: every group carries the SAME client-side encryption key digest
+            (`47:d6:12:27:36:9f:b1:95:…` — truncated here on purpose; the full digest is
+            re-readable at runtime with `pvesh get …/storage/pbs01/content --content backup`,
+            never from a tracked file). One digest across all 21 groups is the proof that no
+            group was written with a different (lost) key.
+
+$ ls -1 /backup-pool/pbs-store/ns/jol-hv01/            (on pbs01)
+host
+vm
+$ ls -1 /backup-pool/pbs-store/ns/jol-hv01/vm/100 | grep -c '^2'
+7                                    # count only '2*' entries: each group dir also
+                                     # contains an `owner` entry (AGENTS.md §2.1 trap)
+$ ls -1 /backup-pool/pbs-store/ns/jol-hv01/host/pve-prod-hv01 | sed -n '1p'
+2026-10-25T00:45:01Z                 # first host-evidence archive = cron start date
+
+NOTE on the apparent gap 2026-10-25T00:00Z: there is NO missing night. The job runs at
+02:00 LOCAL. EU summer time (UTC+3) ended 2026-10-25, so the local-night series maps to UTC as
+10-23 02:00 EEST -> 10-22T23:00Z, 10-24 -> 10-23T23:00Z, 10-25 -> 10-24T23:00Z, and from
+local 10-26 onward (EET, UTC+2) -> <date>T00:00Z. Reading this in UTC without the DST break
+looks like a gap; it is not.
+
+3. VZDUMP TASK HISTORY (hv01 node task log, epoch converted to UTC explicitly)
+-----------------------------------------------------------------------------
+$ pvesh get /nodes/pve-prod-hv01/tasks --typefilter vzdump --output-format json
+2026-10-22T20:40:40Z  vmid=102  job errors     (first manual attempt: "namespace not found")
+2026-10-22T20:42:22Z  vmid=102  OK             (manual gate run)
+2026-10-22T20:44:59Z  --        OK             (manual gate run)
+2026-10-22T23:00:01Z  --        OK   <- local night 10-23
+2026-10-23T23:00:06Z  --        OK   <- local night 10-24
+2026-10-24T23:00:09Z  --        OK   <- local night 10-25 (pre-DST-shift mapping)
+2026-10-26T00:00:05Z  --        OK   <- local night 10-26
+2026-10-27T00:00:05Z  --        OK
+2026-10-28T00:00:05Z  --        OK
+2026-10-29T00:00:04Z  --        OK
+2026-10-30T00:00:02Z  --        OK
+2026-10-31T00:00:07Z  --        OK   <- local night 10-31 (today)
+RESULT: 9 consecutive SCHEDULED runs, all status OK, each covering VMIDs 100/101/102.
+This satisfies the AGENTS.md §2.1 retention gate ("keep the 2026-08-12 manual dump until
+the nightly job has produced >= 7 consecutive OK runs"): 9 of 7 as of 2026-10-31.
+
+4. HOST-EVIDENCE PUSH (phase 7 of the runbook)
+-----------------------------------------------------------------------------
+$ ls /etc/cron.d/ | grep jol
+jol-config-backup
+jol-health
+jol-hv01-archive
+$ grep -hE 'jol|pbs' /etc/cron.d/*
+0 3 * * 0  root /usr/local/bin/hv01-config-backup.sh >> /var/log/jol-hv01/config-backup.log 2>&1
+0 6 * * *  root /usr/local/bin/jol-health-check.sh
+45 3 * * * root /usr/local/bin/hv01-archive-to-pbs.sh >> /var/log/jol-hv01/archive-pbs.log 2>&1
+
+$ tail /var/log/jol-hv01/archive-pbs.log
+...
+host/pve-prod-hv01/2026-10-30T01:45:02Z  Fri Oct 30 03:45:02 2026  keep
+host/pve-prod-hv01/2026-10-31T01:45:01Z  Sat Oct 31 03:45:01 2026  keep
+2026-10-31 03:45:01 === backup to pbs01 completed OK ===
+RESULT: 7 consecutive nightly host-evidence archives (2026-10-25 .. 2026-10-31).
+
+5. WATCHDOG / DETECTION STATE
+-----------------------------------------------------------------------------
+$ ls -t /var/log/jol-hv01 | head
+2026-10-31-health.log   ALERTS.log   archive-pbs.log   2026-10-30-health.log ...
+$ stat -c '%y %s %n' /var/log/jol-hv01/ALERTS.log /mnt/hdd-archive/health/ALERTS.log
+2026-10-31 22:33:01 +0200  128183 /var/log/jol-hv01/ALERTS.log          <- live
+2026-10-21 15:36:57 +0300   29904 /mnt/hdd-archive/health/ALERTS.log   <- STALE (finding F-2)
+$ tail -3 /var/log/jol-hv01/2026-10-31-health.log
+[22:33:00] Backup jobs: jobs.cfg sections=1 scheduler entries=1
+[22:33:00] Recent vzdump tasks (ts status): 1792701899 OK 1792710001 OK 1792796406 OK
+           1792882809 OK 1792972805 OK 1793059205 OK 1793145605 OK 1793232004 OK
+           1793318402 OK 1793404807 OK
+[2026-10-31 22:33:01] === HEALTH CHECK COMPLETE (alerts=2) ===
+Today's CRITICALs (2 per run, both TRUE, unchanged since 2026-10-21 class fix):
+  - "ALERT TRANSPORT BROKEN: 19 message(s) bounced/deferred in the last 24 h"
+  - "alert transport NEVER VERIFIED end-to-end — no proof record at
+     /var/lib/jol-hv01/alert-transport-proof"
+Other gates observed OK today: mount OK /mnt/hdd-iso <- /dev/sda1, /mnt/hdd-archive <-
+/dev/sda2; VM 100/101/102 running; Root FS 26 %; HDD archive 1 %; NTP Leap Normal;
+config evidence pve-config-20261025.tar.gz within the 8-day gate.
+
+$ systemctl is-active prometheus-node-exporter ; systemctl is-active netdata ; ss -tln | grep -cE ':9100|:19999'
+inactive / inactive / 0            -> hypervisor metrics are STILL absent (pull-based
+                                     watchdog only); the 2026-10-21 monitoring finding stands.
+
+6. pbs01 JOB / CAPACITY STATE
+-----------------------------------------------------------------------------
+$ proxmox-backup-manager prune-job list
+pbs-store-prune   store=pbs-store ns=(root) schedule=*-*-* 03:00:00
+                  keep-last=1 keep-daily=7 keep-weekly=4 keep-monthly=6
+$ proxmox-backup-manager verify-job list
+pbs-store-verify  store=pbs-store schedule=*-*-01 04:00:00 ignore-verified=1 outdated-after=30
+$ proxmox-backup-manager garbage-collection list
+pbs-store  schedule=(EMPTY)  next-run=(EMPTY)  last-run-state=(EMPTY)  pending-bytes=0 B
+           -> GC is STILL not scheduled (the 2026-10-23 open item is still open).
+$ proxmox-backup-manager remote list
+(empty)    -> no second-site target; the 3-2-1 "one off-site" leg remains UNMET.
+$ zfs list -o name,used,avail /backup-pool
+backup-pool  73.6G  2.04T          -> ~3.5 % used, far below the 80 % alert gate.
+
+7. VM CONFIG INTEGRITY CHECK (the runbook's "VM data untouched" gate)
+-----------------------------------------------------------------------------
+$ ls -1 /etc/pve/qemu-server/*.conf            -> 100.conf 101.conf 102.conf
+$ qm list                                      -> 100 rag / 101 mcp / 102 her, all running
+$ grep -h '^scsi0' /etc/pve/qemu-server/*.conf  (9 lines)
+All scsi0 lines resolve to local-lvm:vm-<100|101|102>-disk-0. The repeats are NOT
+duplicate option lines: each conf carries PVE legacy inline snapshot sections
+(`[<name>]` with parent:/snaptime:), e.g. `pre-ufw-admin01-20260817-2341`,
+`pre-rag-deploy-20260807-1959` for VMID 100. Verified 2026-10-31.
+
+⚠ FINDING F-3 (raised here, NOT remediated in this session, value location-only):
+`/etc/pve/qemu-server/100.conf` carries a `cipassword:` entry — a salted unix-crypt
+hash (`$5$` = sha256crypt, the weaker of the two modern forms) of the cloud-init user
+password, readable by every PVE admin-plane principal and included in every `/etc/pve`
+config archive. Per §0.1 this is secret material that belongs in Ansible Vault, not in
+a VM config. The hash is deliberately NOT reproduced in this file; read it at
+`pve-prod-hv01:/etc/pve/qemu-server/100.conf` (same class in 101.conf/102.conf).
+Impact: offline-crackable credential store on the hypervisor; also means the weekly
+config tarball rule ("exclude priv/*.key") is not sufficient — `cipassword` is in the
+main conf body.
+
+================================================================================
+SUMMARY — what is now true
+================================================================================
+* Off-host VM backup of VMIDs 100/101/102: IN FORCE and 9 consecutive OK nightlies.
+* Restore drill: PROVEN for vm/102 (2026-10-22, scratch VMID 199, agent answered 80 s).
+  NOT re-drilled for vm/100 or vm/101 — those rest on the same key + same job, not on
+  a restore test of their own group.
+* Host-evidence push to pbs01: IN FORCE since 2026-10-25 (7 archives).
+* RPO 24 h: MET (newest snapshot age ~20.6 h at probe time). RTO: unchanged claim.
+* Still open after this baseline: no off-site remote sync (3-2-1 leg), GC unscheduled,
+  mail alert transport dead + no end-to-end proof record, no node_exporter/netdata on
+  hv01, HDD ALERTS.log mirror silently dead (F-2), cipassword hash on admin plane (F-3).
+
+F-2 root cause (for the fix session): scripts/maintenance/hv01-health-check.sh:73 mirrors
+alerts with `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` where ARCHIVE_HEALTH=/mnt/hdd-archive/health
+— findmnt matches MOUNT POINTS, and `/mnt/hdd-archive/health` is a subdirectory of the
+`/mnt/hdd-archive` mount, so the test returns empty even though `findmnt -n -o SOURCE
+/mnt/hdd-archive` returns `/dev/sda2` (both measured 2026-10-31). The guard needs `-T`
+(`findmnt -n -o SOURCE -T "$ARCHIVE_HEALTH"`) or the bare mountpoint. Effect: the
+off-HDD alert evidence copy has been frozen at 2026-10-21 while the primary log kept
+recording — a silent-failure class, detection intact, replication of detection not.

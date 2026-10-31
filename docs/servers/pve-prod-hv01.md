@@ -11,8 +11,8 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | Hypervisor for AI service VMs (RAG, MCP, Hermes) |
 | **SSH Policy**     | key-only                                   |
-| **Backup Enabled** | **NO — see Backup Policy** (verified 2026-08→2026-10-21: no PBS datastore registered, no valid vzdump job) |
-| **Monitoring**     | **NO (verified 2026-10-21)** — node-exporter and netdata are not installed: no systemd units, no packages, no binaries, no listeners on 9100/19999. Only host artifact is the 06:00 cron watchdog (fixed same day, see Change History) |
+| **Backup Enabled** | **yes (verified 2026-10-31)** — job `hv01-nightly-pbs` → datastore `pbs01` ns `jol-hv01`, 9 consecutive scheduled OK runs. History: the claim was false from 2026-08 until the 2026-10-21 inspection found no datastore and no valid vzdump job; closed 2026-10-22 |
+| **Monitoring**     | **NO push metrics (re-verified 2026-10-31)** — `systemctl is-active prometheus-node-exporter` → `inactive`, `netdata` → `inactive`, `ss -tln` → 0 listeners on 9100/19999. Detection is pull-based: `jol-health-check.sh` runs every 15 min (timer) + the `0 6 * * *` cron entry, and today emitted 2 true CRITICALs (alert transport dead + no end-to-end proof record). ⚠ New finding F-2: the HDD mirror of `ALERTS.log` has been frozen since 2026-10-21 (see Backup Policy) |
 
 ## Role Description
 
@@ -37,7 +37,7 @@ acceptance (no ECC, no IPMI, single NIC/PSU).
 |--------|--------|--------------------|------|-------------|
 | `nvme0n1` 1.8 TB | p1 bios_grub, p2 ESP 1 G, p3 930 G → VG `pve` (`pve-root` 96 G, `pve-swap` 8 G, `pve-data` thin pool 810 G); **1001 GB unallocated** | `/`, `local`, `local-lvm` | host OS + ALL VM disks and cloud-init drives (VMIDs 100/101/102) | 1 (live) |
 | `sda1` 400 G ext4 | UUID `1094ed1c…` | `/mnt/hdd-iso` → PVE `dir` storage `hdd-iso`, `content iso,vztmpl` | provisioning media (`noble-server-cloudimg-amd64.img`, SHA256 `d1940f7d…b005ac`) + container templates | 1 local (+ optional pxar to pbs01) |
-| `sda2` 531 G ext4 | UUID `39c5baab…` | `/mnt/hdd-archive` (not a PVE storage) | host evidence: weekly `/etc/pve` config tarballs, daily health logs + `ALERTS.log`, access/system/mcp archives | 1 local → nightly pxar → **pbs01** (pending) |
+| `sda2` 531 G ext4 | UUID `39c5baab…` | `/mnt/hdd-archive` (not a PVE storage) | host evidence: weekly `/etc/pve` config tarballs, daily health logs + `ALERTS.log`, access/system/mcp archives | 1 local → nightly pxar → **pbs01** (LIVE since 2026-10-25; newest `host/pve-prod-hv01/2026-10-31T01:45:01Z`) |
 
 Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfiguration.md` §2):
 
@@ -112,33 +112,64 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
 
 ## Backup Policy
 
-**Target state (design, not yet in force)**
+**Working baseline (verified 2026-10-31T20:36Z — read-only probes,
+`docs/compliance/evidence/hv01-backup-baseline-20261031.txt`)**
 
-- VM backups: hypervisor `vzdump` → pbs01 datastore `pbs-store`, namespace
-  `jol-hv01`, nightly staggered 02:00/02:15/02:30 UTC, `mode snapshot` +
-  qemu-guest-agent fs-freeze, zstd, prune keep-daily=7/weekly=4/monthly=6
-- Host evidence (`/mnt/hdd-archive`): nightly `proxmox-backup-client` pxar push
-  → pbs01 `host/pve-prod-hv01` at 03:45 UTC
-  (`scripts/maintenance/hv01-archive-to-pbs.sh`)
-- RPO: 24 h | RTO: 4 h
+| Item | State |
+|------|-------|
+| PBS datastore | `pvesm status` → `pbs01 pbs active`. Registered 2026-10-22 through the secret-safe path (token typed into the PVE form / delivered over stdin, never argv — §0.1), namespace `jol-hv01`, client-side encryption key `/etc/pve/priv/storage/pbs01.enc` escrowed off-host |
+| Backup job | `pvesh get /cluster/backup` → `hv01-nightly-pbs`: `enabled 1`, `schedule 02:00` (pve-calendar-event, not legacy cron), `vmid 100,101,102`, `mode snapshot`, `compress zstd`, `prune-backups keep-daily=7,keep-weekly=4,keep-monthly=6`, `repeat-missed 1`, `next-run 1793491200` (= 2026-10-31T23:00Z / Nov 1 02:00 local) |
+| Scheduled runs | 9 consecutive `vzdump` tasks with status `OK` (local nights 2026-10-23 → 2026-10-31). ⚠ Snapshot names are UTC and the series shifts at the 2026-10-25 DST change (`…T23:00:0xZ` before, `…T00:00:0xZ` after) — read in UTC without that break it looks like a missing night; there is none |
+| Artifacts on pbs01 | `ns/jol-hv01/vm/{100,101,102}` → 7 groups each (keep-daily=7 is doing real work); newest `2026-10-31T00:00:07Z`/`:10Z`/`:13Z` = 20.6 h old at probe time ⇒ **RPO 24 h met**. `ns/jol-hv01/host/pve-prod-hv01` → nightly pxar evidence since 2026-10-25 |
+| Restore proof | **vm/102 drilled OK 2026-10-22** (scratch VMID 199, decrypted with the stored key, guest agent answered at 80 s, then destroyed clean). vm/100 and vm/101 have NOT had their own drill: ⚠ UNVERIFIED |
+| pbs01 side jobs | `pbs-store-prune` daily `*-*-* 03:00` (keep-last 1, daily 7, weekly 4, monthly 6); `pbs-store-verify` monthly `*-*-01 04:00` (`ignore-verified=1`, `outdated-after=30`) |
+| Capacity | `zfs list -o name,used,avail /backup-pool` → 73.6 G used / 2.04 T avail (~3.5 %). ⚠ `pvesh get …/storage/pbs01/status` reports `total/used/avail = 0` for `pbs` type — read usage on pbs01, never through PVE |
+| Retention gate | AGENTS.md §2.1 required ≥ 7 consecutive OK nightly runs before retiring the 2026-08-12 manual `vzdump-qemu-100-2026_08_12-23_26_27.vma.zst`. **Met: 9 of 7 as of 2026-10-31.** The file was NOT deleted — that is a separate §0.3 change record |
 
-**Actual state (verified 2026-10-21 — evidence
-`docs/compliance/evidence/hv01-storage-inspection-20261021.txt`)**
+**Still open — the table above is NOT "3-2-1 met"**
 
-| Item | Reality |
-|------|---------|
-| PBS datastore on this host | **none** — `/etc/pve/priv/storage/` absent, `storage.cfg` has only `local`, `local-lvm`, `hdd-iso` |
-| Backup jobs | `pvesh get /cluster/backup` → `[]`. `jobs.cfg` holds a hand-written `job-vm100-nightly` whose option lines **lack the mandatory leading TAB** (`cat -A` proof, evidence file §8), so the parser dropped every one of them (`ignore config line: …` → `missing value for required option 'schedule'`) → it has never run. The `30 3 * * *` schedule form itself is valid PVE cron — the defect is file serialisation, not the schedule |
-| Backup artifacts | one manual `vzdump-qemu-100-2026_08_12-23_26_27.vma.zst` (14 GB) in `/var/lib/vz/dump` — on the **same NVMe** as the VM it protects. VMIDs 101/102: never dumped |
-| Consequence | ⚠ **No off-host backup exists for rag/mcp/her today.** The RPO 24 h / RTO 4 h claim in this file and in `docs/servers/rag-prod-lt01.md` is not met. `mailnotification failure` cannot alert, because a job that does not exist cannot fail |
-| Blocking step | registering the datastore requires the `pve-backup@pbs!pve-token` secret from the password manager — it must be typed into the **PVE Web UI** (Add Storage → Proxmox Backup Server, fingerprint `4b:93:a9…54:92`, namespace `jol-hv01`), never into a CLI (`pvesm add pbs --password …` exposes it in argv and shell history, §0.1) |
-| 3-2-1 | "one off-site" leg unmet: pbs01 remote sync (`pbs-jol01`) pending since 2026-08-01; backup traffic rides the management VLAN because VLAN 85 `nic2` is uncabled (open decision D6) |
-| Do not delete | the 2026-08-12 vma file until a pbs01 snapshot of VMID 100 exists **and** its restore drill passed |
+- **No off-site leg.** `proxmox-backup-manager remote list` on pbs01 → empty (verified 2026-10-31);
+  the `pbs-jol01` sync has been pending since 2026-08-01. A site event still takes hv01 and its
+  backup custodian together. Backup traffic rides the management VLAN because VLAN 85 `nic2` is
+  uncabled (open decision D6).
+- **GC unscheduled**: `proxmox-backup-manager garbage-collection list` → `schedule`, `next-run` and
+  `last-run-state` all empty, `pending-bytes 0 B` (open since 2026-10-23). Prune deletes metadata;
+  space is only reclaimed by GC, so the ~3.5 % figure does not self-correct.
+- **Mail leg dead** (§Security Controls): `mailnotification failure` reaches nobody, so the watchdog
+  gates are the real detection layer, not this job's notification setting.
+- **F-2 — alert evidence mirror broken**: `scripts/maintenance/hv01-health-check.sh:73` guards the HDD
+  copy with `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` where `ARCHIVE_HEALTH=/mnt/hdd-archive/health`.
+  `findmnt` resolves mount **points**, and that path is a subdirectory of the `/mnt/hdd-archive` mount,
+  so the guard is always false: `/mnt/hdd-archive/health/ALERTS.log` has not grown since 2026-10-21
+  while `/var/log/jol-hv01/ALERTS.log` kept recording (128 KB, mtime 2026-10-31). Measured both ways
+  today. Fix = `findmnt -n -o SOURCE -T "$ARCHIVE_HEALTH"` (or test the mountpoint). **Not applied in
+  this session**: replacing an installed host script is a §0.3 mutation and needs its own change record.
+
+**Target state (design)** — RPO 24 h | RTO 4 h; VM backups `vzdump` → pbs01 `pbs-store` ns `jol-hv01`
+(today one 02:00 job for all three VMIDs instead of the designed 02:00/02:15/02:30 stagger — acceptable
+at 25–91 s per VM, re-split if the estate grows); host evidence pushed nightly at 03:45 local by
+`scripts/maintenance/hv01-archive-to-pbs.sh`.
+
+**History — what was wrong on 2026-10-21** (evidence
+`docs/compliance/evidence/hv01-storage-inspection-20261021.txt`): no PBS datastore on this host, one
+hand-written `job-vm100-nightly` section whose option lines lacked the mandatory leading TAB (the parser
+dropped every option → `missing value for required option 'schedule'` → it had never run), a single manual
+14 GB dump stored on the **same NVMe** as the VM it protected, and VMIDs 101/102 never dumped. Kept here
+because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, last-`vzdump` outcome) exist.
 
 ## Audit Checklist — Storage and Backup (run before declaring this host operational)
 
 > Run as root on pve-prod-hv01. Never put the PBS token on a command line. Q: is
 > there a backup? A: only if the target is a different device AND a restore worked.
+>
+> **Status 2026-10-31 (read-only re-verification, `docs/compliance/evidence/hv01-backup-baseline-20261031.txt`)**:
+> PASS — PBS datastore, job registered, job schedule valid, job covers 100/101/102, next-run armed,
+> backups land (7 groups per VMID, all inside 26 h), evidence replicated, retention (`pbs-store-prune`),
+> datastore usage < 80 % (measured on pbs01: ~3.5 %), VM data untouched (all `scsi0` on `local-lvm`; the
+> repeated `scsi0:` lines are PVE inline snapshot sections, not duplicate options), mounts real, evidence
+> fresh, NTP Normal. ⚠ NOT verified — GC schedule (empty), restore-without-key negative test, per-VMID
+> drill for 100/101 (only vm/102 drilled), and the `pbs01.pw`/`enc` permission pair (not re-read this
+> session; the files are secret material and stay location-only).
 
 ```text
 □ HDD present:          lsblk -o NAME,SIZE,MOUNTPOINT,MODEL /dev/sda
@@ -186,11 +217,11 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
 
 | Risk | Mitigation |
 |------|-----------|
-| No ECC RAM | nightly backups + PBS checksums (⚠ backup path itself is the open risk, see Backup Policy) |
+| No ECC RAM | nightly backups + PBS checksums (✅ backup path itself proven live 2026-10-22, 9 OK nightlies by 2026-10-31; residual risk is the missing off-site leg) |
 | No IPMI/OOB | Physical access documented; netdata alerts — ⚠ netdata is not installed, so this mitigation is currently void; physical access is also what makes a bad firewall change expensive |
 | Dual NIC (nic0 spare) | nic1 active on VLAN 60; nic0 available for failover/iSCSI |
 | Single PSU | UPS; documented acceptance |
-| HDD is consumer 5400 rpm, 2482 power cycles, `brokenfpdmaaa nolpm` quirks | holds no VM data and no backup role; evidence on it is replicated to pbs01; `nofail` so its death cannot block boot |
+| HDD is consumer 5400 rpm, 2482 power cycles, `brokenfpdmaaa nolpm` quirks | holds no VM data and no backup role; evidence on it is replicated to pbs01 (live since 2026-10-25); `nofail` so its death cannot block boot. ⚠ F-2: the ALERTS.log mirror onto it is dead (see Backup Policy) |
 | Host config hand-maintained (no Ansible play targets `hypervisors`) | drift detection manual; extraction under Ansible is a tracked follow-up (same root-cause class as MCP finding M3) |
 
 ## Change History
@@ -207,3 +238,6 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
 | 2026-10-21 | **HIGH fixed — the weekly `/etc/pve` config backup contained private key material** (`etc/pve/priv/pve-root-ca.key`, `priv/authkey.key`, `pve-www.key`, `nodes/pve/pve-ssl.key`, `priv/authorized_keys`) in a **644** archive on the HDD; the planned nightly replication to pbs01 would have copied it off-host. Replaced by `scripts/maintenance/hv01-config-backup.sh` (installed `/usr/local/bin` 750, sha256 `c1a56589d717`, host == repo): excludes `priv`/`*.key`/`*.pem`/`*.srl`, `umask 077`, forces mode 600, and **refuses to publish** if any key entry survives; `/etc/cron.d/jol-config-backup` rewritten with `PATH`/`SHELL` and no `2>/dev/null` error suppression; old tarballs chmod 600; previous cron preserved at `/mnt/hdd-archive/system/jol-config-backup.pre-fix-20261021-222224`. New archive verified: **0 key entries, 9 useful config entries**, mode 600, 132K. Key material is now escrow-only (Vaultwarden) and deliberately not backed up. ⚠ Open decision: five pre-fix tarballs still hold the keys — delete them, and rotate `pve-root-ca.key`/`authkey.key` if the HDD ever left the site. Watchdog also gained two gates (no key material in config archives; every declared storage must be `active`) and immediately flagged `storage pbs01 is declared but status=inactive` | `scripts/maintenance/hv01-config-backup.sh` (sha256 `c1a56589d717`, host == repo); `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §18 |
 | 2026-10-21 | `pbs01` PBS storage exists (created via Web UI 19:50, encryption key `priv/storage/pbs01.enc` present, namespace `jol-hv01`, fingerprint pinned) but **cannot activate**: `priv/storage/pbs01.pw` is empty (1 byte = newline), PVE reports `Use of uninitialized value $password … 401 Unauthorized`. Enabled it (`pvesm set pbs01 --disable 0`) so the failure is visible instead of silent. ⚠ **No backup job, no off-host backup yet** — the credential value is the single blocker, and it must be typed by the operator (browser field or a `read -rs` pipe), never via chat or argv | `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §18; `/etc/pve/storage.cfg`, `pvesm status` |
 | 2026-10-21 | Monitoring control restored (runbook phase 8, HIGH): the daily watchdog had emitted **415 CRITICALs since 2026-07-31, all of them false** (249 `VM 10x is  - attempting restart`, 166 `SMART FAILURE on /dev/…`) because `/etc/cron.d/jol-health` sets no `PATH`, cron's default PATH lacks `/usr/sbin`, and the script mapped "command not found" to "drive failed / VM stopped". Side effects: the `qm start` safety net had never actually run, and the alert volume made the channel untrustworthy — which is how "Backup Enabled: yes" rotted unnoticed for ten weeks. Replaced with the managed `scripts/maintenance/hv01-health-check.sh` (750 root:root, SHA256 `fdd1a5fa…32cece`): explicit PATH, probe-unavailable reported separately from failure, rasdaemon parsed by record block (the old `grep -c error` counted its own "No Memory errors." headings — the reported "22 RAM errors" was fiction; the 6 real records are today's block-device I/O errors), plus new gates for mount reality, `jobs.cfg`-vs-scheduler registration drift, last vzdump outcome and config-evidence freshness. `PATH=/usr/sbin:/usr/bin:/sbin:/bin` added to the cron file. Verified under `env -i PATH=/usr/bin:/bin`: 3 alerts, all true, rc=1; negative test `VM_IDS=9999` no longer claims a stopped VM. VM auto-restart is opt-in (`HV01_AUTO_START_VM=1`, default off) per §0.3 | `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §5–§6 |
+| 2026-10-22 | **Backup Enabled flipped from NO to live**: `pbs01` datastore activated (token rotated and installed through the no-print pipeline, `priv/storage/pbs01.pw` 600), namespace `jol-hv01` pre-created on pbs01 (`install -d -o backup -g backup -m 750` — the "auto-created on first backup" claim was falsified), `DatastorePowerUser` granted to user **and** token, the malformed `job-vm100-nightly` section removed, and API-created job `hv01-nightly-pbs` registered. First manual `vzdump` OK for VMIDs 100/101/102; restore drill PASSED on vm/102 → scratch VMID 199 → destroyed clean | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §16–§17; `docs/compliance/evidence/incident-20261022-pbs-token-secret-exposure.md` |
+| 2026-10-25 | Phase-7 host-evidence push went live: `/etc/cron.d/jol-hv01-archive` (`45 3 * * *` → `hv01-archive-to-pbs.sh`). First archive `host/pve-prod-hv01/2026-10-25T00:45:01Z`; every night through 2026-10-31 present and `completed OK` | `/var/log/jol-hv01/archive-pbs.log`; `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §4 |
+| 2026-10-31 | **Backup baseline re-verified read-only; every "no backup exists" statement on this page and on rag/mcp/her corrected to the live state.** 9 consecutive scheduled OK nightlies; 7 groups per VMID on pbs01; RPO 24 h met (newest 20.6 h). New findings raised, NOT remediated: **F-2** the watchdog's HDD `ALERTS.log` mirror is dead since 2026-10-21 (`findmnt` given a subdirectory instead of the mountpoint — `scripts/maintenance/hv01-health-check.sh:73`); **F-3** `/etc/pve/qemu-server/10*.conf` carry a `cipassword:` sha256crypt hash of the cloud-init user password on the admin plane, which the weekly `/etc/pve` tarball exclusion rule (keys/`priv`) does not cover. Still open: GC unscheduled, no off-site remote sync, mail transport dead, no node_exporter/netdata | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
