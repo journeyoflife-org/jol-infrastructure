@@ -12,7 +12,7 @@
 | **Purpose**        | Hypervisor for AI service VMs (RAG, MCP, Hermes) |
 | **SSH Policy**     | key-only                                   |
 | **Backup Enabled** | **yes (verified 2026-10-31)** — job `hv01-nightly-pbs` → datastore `pbs01` ns `jol-hv01`, 9 consecutive scheduled OK runs. History: the claim was false from 2026-08 until the 2026-10-21 inspection found no datastore and no valid vzdump job; closed 2026-10-22 |
-| **Monitoring**     | **NO push metrics (re-verified 2026-10-31)** — `systemctl is-active prometheus-node-exporter` → `inactive`, `netdata` → `inactive`, `ss -tln` → 0 listeners on 9100/19999. Detection is pull-based: `jol-health-check.sh` runs every 15 min (timer) + the `0 6 * * *` cron entry, and today emitted 2 true CRITICALs (alert transport dead + no end-to-end proof record). ⚠ New finding F-2: the HDD mirror of `ALERTS.log` has been frozen since 2026-10-21 (see Backup Policy) |
+| **Monitoring**     | **NO push metrics (re-verified 2026-10-31)** — `systemctl is-active prometheus-node-exporter` → `inactive`, `netdata` → `inactive`, `ss -tln` → 0 listeners on 9100/19999. Detection is pull-based: the host's OWN schedule is `0 6 * * *` in `/etc/cron.d/jol-health`; the 15-minute cadence visible in the log comes from the **workstation** user timer `jol-fleet-health.timer` (`~/.config/systemd/user/`, active — last 23:02:57 → next 23:17:57) running `jol-fleet-health-pull.sh` over SSH. There is **no hv01-side timer** (`systemctl list-timers` on hv01 lists none — measured 2026-10-31). Today it emitted 2 true CRITICALs (alert transport dead + no end-to-end proof record). F-2 (HDD `ALERTS.log` mirror frozen since 2026-10-21) was **FIXED the same evening** — see Backup Policy and issue #124 |
 
 ## Role Description
 
@@ -135,15 +135,40 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
 - **GC unscheduled**: `proxmox-backup-manager garbage-collection list` → `schedule`, `next-run` and
   `last-run-state` all empty, `pending-bytes 0 B` (open since 2026-10-23). Prune deletes metadata;
   space is only reclaimed by GC, so the ~3.5 % figure does not self-correct.
-- **Mail leg dead** (§Security Controls): `mailnotification failure` reaches nobody, so the watchdog
-  gates are the real detection layer, not this job's notification setting.
-- **F-2 — alert evidence mirror broken**: `scripts/maintenance/hv01-health-check.sh:73` guards the HDD
-  copy with `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` where `ARCHIVE_HEALTH=/mnt/hdd-archive/health`.
-  `findmnt` resolves mount **points**, and that path is a subdirectory of the `/mnt/hdd-archive` mount,
-  so the guard is always false: `/mnt/hdd-archive/health/ALERTS.log` has not grown since 2026-10-21
-  while `/var/log/jol-hv01/ALERTS.log` kept recording (128 KB, mtime 2026-10-31). Measured both ways
-  today. Fix = `findmnt -n -o SOURCE -T "$ARCHIVE_HEALTH"` (or test the mountpoint). **Not applied in
-  this session**: replacing an installed host script is a §0.3 mutation and needs its own change record.
+- **Alert transport (mail) is dead** (§Security Controls): `mailnotification failure` reaches nobody,
+  so the watchdog gates are the real detection layer, not this job's notification setting. Both
+  CRITICALs re-raised on every run today (`3 outward message(s)` + `never verified end-to-end`).
+
+**Fixed 2026-10-31 23:05Z — issue [#124](https://github.com/journeyoflife-org/jol-infrastructure/issues/124)**
+
+- **F-2 — alert-evidence mirror restored.** The guard was
+  `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` with `ARCHIVE_HEALTH=/mnt/hdd-archive/health`. `findmnt`
+  resolves mount **points**, and that path is a subdirectory of the `/mnt/hdd-archive` mount, so it was
+  false on every run since install: the mirror held 420 lines frozen at 2026-10-21 while
+  `/var/log/jol-hv01/ALERTS.log` had grown to 718. ⚠ **The tempting fix `findmnt -T` is withdrawn and
+  deliberately NOT used**: `-T` resolves any path to its containing mount **including `/`**, so with the
+  evidence disk unmounted the guard would PASS and alerts would land on the root filesystem — the exact
+  2026-10-21 failure class the guard exists to prevent. Applied instead: **device identity** — write only
+  when `stat -c '%d' "$ARCHIVE_HEALTH"` differs from `ROOT_DEV`, otherwise log
+  `alert mirror SUPPRESSED … refusing to write alerts onto /` (never `alert()` from inside `alert()` —
+  that self-recurses). `ROOT_DEV` moved to the config block because the script is `set -u` and `alert()`
+  can run before gate 0. Measured: `/` = 64513; `/mnt/hdd-archive` and `/mnt/hdd-archive/health` = 2050.
+  **Positive test**: one run moved the mirror 420 → 422 lines (delta = the 2 real CRITICALs), mirror mtime
+  `2026-10-31 23:05:27`. **Negative test**: a temp copy with `ARCHIVE_HEALTH=/var/tmp/negtest/health`
+  (device 64513 = root) created **0 files** in the target and logged the suppression reason; run rc
+  unchanged (`rc=1` while alerts exist, by design).
+- **F-4 — host/repo drift, found by the pre-change sha comparison rather than by design.** Installed
+  `/usr/local/bin/jol-health-check.sh` was sha `459de970…` (340 lines) while the repo copy was
+  `e6aaba55…` (382 lines): the gate-13 alert-transport rewrite committed 2026-10-24/25 had **never been
+  installed**. Independent live proof: before this change the CRITICAL read
+  `19 message(s) bounced/deferred`, after it reads `3 outward message(s) bounced/deferred in the last 24 h
+  (19 delivery records, retries collapsed)` — 19 records are **3** stuck mails, so the stale host text
+  inflated the triage signal 6×. Deployed copy is now sha `ec3709c9…`, byte-identical to the repo, mode
+  `750 root:root`, `bash -n` clean. Root cause is the MCP-M3 class (manual install, no reconciliation
+  gate) — follow-up: assert repo-sha == host-sha in the runbook's install step.
+- Prechange state: `/root/prechange-20261031-230501/jol-health-check.sh.bak` (sha `459de970…`) and
+  `ALERTS.log.mirror.bak` (sha `5c3641dc…`). Test artifacts left on the host (volatile `/tmp`, no
+  secrets): `/tmp/hc-neg.sh`, `/tmp/hcneg.out`, `/tmp/hc-run.out`, empty `/var/tmp/negtest/health`.
 
 **Target state (design)** — RPO 24 h | RTO 4 h; VM backups `vzdump` → pbs01 `pbs-store` ns `jol-hv01`
 (today one 02:00 job for all three VMIDs instead of the designed 02:00/02:15/02:30 stagger — acceptable
@@ -221,7 +246,7 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 | No IPMI/OOB | Physical access documented; netdata alerts — ⚠ netdata is not installed, so this mitigation is currently void; physical access is also what makes a bad firewall change expensive |
 | Dual NIC (nic0 spare) | nic1 active on VLAN 60; nic0 available for failover/iSCSI |
 | Single PSU | UPS; documented acceptance |
-| HDD is consumer 5400 rpm, 2482 power cycles, `brokenfpdmaaa nolpm` quirks | holds no VM data and no backup role; evidence on it is replicated to pbs01 (live since 2026-10-25); `nofail` so its death cannot block boot. ⚠ F-2: the ALERTS.log mirror onto it is dead (see Backup Policy) |
+| HDD is consumer 5400 rpm, 2482 power cycles, `brokenfpdmaaa nolpm` quirks | holds no VM data and no backup role; evidence on it is replicated to pbs01 (live since 2026-10-25); `nofail` so its death cannot block boot. F-2 (the dead `ALERTS.log` mirror onto it) **fixed 2026-10-31**, and the replacement guard now *refuses* to write if the disk is unmounted instead of silently falling back to `/` |
 | Host config hand-maintained (no Ansible play targets `hypervisors`) | drift detection manual; extraction under Ansible is a tracked follow-up (same root-cause class as MCP finding M3) |
 
 ## Change History
@@ -241,3 +266,4 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 | 2026-10-22 | **Backup Enabled flipped from NO to live**: `pbs01` datastore activated (token rotated and installed through the no-print pipeline, `priv/storage/pbs01.pw` 600), namespace `jol-hv01` pre-created on pbs01 (`install -d -o backup -g backup -m 750` — the "auto-created on first backup" claim was falsified), `DatastorePowerUser` granted to user **and** token, the malformed `job-vm100-nightly` section removed, and API-created job `hv01-nightly-pbs` registered. First manual `vzdump` OK for VMIDs 100/101/102; restore drill PASSED on vm/102 → scratch VMID 199 → destroyed clean | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §16–§17; `docs/compliance/evidence/incident-20261022-pbs-token-secret-exposure.md` |
 | 2026-10-25 | Phase-7 host-evidence push went live: `/etc/cron.d/jol-hv01-archive` (`45 3 * * *` → `hv01-archive-to-pbs.sh`). First archive `host/pve-prod-hv01/2026-10-25T00:45:01Z`; every night through 2026-10-31 present and `completed OK` | `/var/log/jol-hv01/archive-pbs.log`; `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §4 |
 | 2026-10-31 | **Backup baseline re-verified read-only; every "no backup exists" statement on this page and on rag/mcp/her corrected to the live state.** 9 consecutive scheduled OK nightlies; 7 groups per VMID on pbs01; RPO 24 h met (newest 20.6 h). New findings raised, NOT remediated: **F-2** the watchdog's HDD `ALERTS.log` mirror is dead since 2026-10-21 (`findmnt` given a subdirectory instead of the mountpoint — `scripts/maintenance/hv01-health-check.sh:73`); **F-3** `/etc/pve/qemu-server/10*.conf` carry a `cipassword:` sha256crypt hash of the cloud-init user password on the admin plane, which the weekly `/etc/pve` tarball exclusion rule (keys/`priv`) does not cover. Still open: GC unscheduled, no off-site remote sync, mail transport dead, no node_exporter/netdata | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
+| 2026-10-31 23:05Z | **PRODUCTION CHANGE (issue #124) — F-2 alert-evidence mirror repaired + F-4 host/repo drift closed.** `findmnt` mount-point guard replaced by a **device-identity** guard (`stat -c '%d'` vs `ROOT_DEV`, `ROOT_DEV` moved into the config block for `set -u` safety), with suppression logged instead of silent skip; the `findmnt -T` recommendation from the 20:45Z entry is **withdrawn** because `-T` resolves to `/` when the disk is unmounted and would have re-opened the 2026-10-21 write-onto-root failure class. Deployed `pve:/usr/local/bin/jol-health-check.sh` sha `459de970…`(340 lines, stale, gate-13 rewrite never installed) → `ec3709c9…` == repo (382 lines), mode 750 root:root. **Positive test**: mirror 420 → 422 lines (delta = 2 real CRITICALs), mtime today. **Negative test**: target forced onto the root device (64513) → **0 files written** + `alert mirror SUPPRESSED … refusing to write alerts onto /`. **Gate-13 proof of reconciliation**: alert text changed from `19 message(s)` to `3 outward message(s) … (19 delivery records, retries collapsed)`. `bash -n` clean, repo-wide `shellcheck` rc=0. Rollback: restore `/root/prechange-20261031-230501/jol-health-check.sh.bak`. Also corrected on this page: the "15 min timer on hv01" wording — the 15-min cadence is the **workstation** `jol-fleet-health.timer` pulling over SSH; hv01's own schedule is `0 6 * * *` (measured: no hv01-side timer). No storage/ACL/firewall/`/etc/pve` change; no secret read or printed | issue #124; `/root/prechange-20261031-230501/`; `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §8 |

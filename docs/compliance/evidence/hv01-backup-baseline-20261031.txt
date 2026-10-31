@@ -169,13 +169,99 @@ SUMMARY — what is now true
 * RPO 24 h: MET (newest snapshot age ~20.6 h at probe time). RTO: unchanged claim.
 * Still open after this baseline: no off-site remote sync (3-2-1 leg), GC unscheduled,
   mail alert transport dead + no end-to-end proof record, no node_exporter/netdata on
-  hv01, HDD ALERTS.log mirror silently dead (F-2), cipassword hash on admin plane (F-3).
+  hv01, cipassword hash on the admin plane (F-3).
+  ~~HDD ALERTS.log mirror silently dead (F-2)~~ → FIXED 2026-10-31T23:05Z, see §8 / issue #124.
 
-F-2 root cause (for the fix session): scripts/maintenance/hv01-health-check.sh:73 mirrors
-alerts with `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` where ARCHIVE_HEALTH=/mnt/hdd-archive/health
+F-2 root cause (fix executed later the same evening — see §8): the mirror guard was
+`findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` where ARCHIVE_HEALTH=/mnt/hdd-archive/health
 — findmnt matches MOUNT POINTS, and `/mnt/hdd-archive/health` is a subdirectory of the
 `/mnt/hdd-archive` mount, so the test returns empty even though `findmnt -n -o SOURCE
-/mnt/hdd-archive` returns `/dev/sda2` (both measured 2026-10-31). The guard needs `-T`
-(`findmnt -n -o SOURCE -T "$ARCHIVE_HEALTH"`) or the bare mountpoint. Effect: the
-off-HDD alert evidence copy has been frozen at 2026-10-21 while the primary log kept
-recording — a silent-failure class, detection intact, replication of detection not.
+/mnt/hdd-archive` returns `/dev/sda2` (both measured 2026-10-31). Effect: the off-HDD alert
+evidence copy has been frozen at 2026-10-21 while the primary log kept recording — a
+silent-failure class, detection intact, replication of detection not.
+
+⚠ WITHDRAWN RECOMMENDATION (this line supersedes the first draft of the paragraph above,
+which said "the guard needs `-T`"): `findmnt -T` is NOT the correct fix. `-T` resolves any
+path to its containing mount INCLUDING `/`, so with the evidence disk unmounted the guard
+would PASS and alerts would be written onto the root filesystem — the exact 2026-10-21
+failure class the guard exists to prevent. The applied fix is a device-identity comparison;
+measured proof of both branches is in §8.
+
+================================================================================
+§8 EXECUTED 2026-10-31T23:05Z — F-2 mirror fixed + F-4 host/repo drift closed
+   Change record: GitHub issue #124 (CC8.1, rollback plan in the issue body)
+================================================================================
+
+Drift found BEFORE the change (this is how F-4 surfaced — the sha comparison was required
+by §0.3, not by a plan to look for drift):
+  repo     scripts/maintenance/hv01-health-check.sh   e6aaba5550daf991…  382 lines
+  installed pve:/usr/local/bin/jol-health-check.sh    459de970e312ee25…  340 lines
+  diff -u   exactly ONE hunk, @@ -304,12 +304,54 @@ = the gate-13 alert-transport
+            rewrite committed 2026-10-24/25 (dba6075 / 5e94787) and never installed.
+  Live proof independent of the sha: today's CRITICAL still read "19 message(s)
+  bounced/deferred" (delivery-record count) instead of the corrected message-count form.
+
+Prechange backups (root@pve):
+  /root/prechange-20261031-230501/jol-health-check.sh.bak   sha 459de970… (exact pre-change bytes)
+  /root/prechange-20261031-230501/ALERTS.log.mirror.bak     sha 5c3641dc… (mirror state, 420 lines)
+
+The change (scripts/maintenance/hv01-health-check.sh):
+  - ROOT_DEV moved from gate 0 into the config block, because alert() can run before gate 0
+    and the script is `set -u` (a late reference would abort the run mid-alert).
+  - mirror guard replaced:
+        if [[ ! -d "$ARCHIVE_HEALTH" ]]; then            info "alert mirror SUPPRESSED: … absent"
+        elif [[ "$(stat -c '%d' "$ARCHIVE_HEALTH")" == "$ROOT_DEV" ]]; then
+                                                       info "… shares the root device … refusing"
+        else                                           printf … >>"$ARCHIVE_HEALTH/ALERTS.log"
+    Deliberately NOT `alert()` on suppression: alert() calling alert() recurses forever.
+    Suppression is instead written to the run log, so a dead mirror is visible, not silent.
+
+Device identity measured on the host:
+  stat -c '%d %n' /                         -> 64513 /
+  stat -c '%d %n' /mnt/hdd-archive           -> 2050
+  stat -c '%d %n' /mnt/hdd-archive/health    -> 2050      (mounted ⇒ differs from root)
+
+POSITIVE test — real mounted target, one full run:
+  mirror lines   before=420  after=422  delta=2      (delta == the 2 real CRITICALs)
+  mirror mtime   2026-10-31 23:05:27 +0200           (was 2026-10-21 15:36:57 +0300)
+  suppressed lines in the run log = 0                (guard did NOT suppress a healthy mount)
+  run rc = 1                                         (by design: alerts > 0)
+  gate-13 text now emitted:
+    "ALERT TRANSPORT BROKEN: 3 outward message(s) bounced/deferred in the last 24 h
+     (19 delivery records, retries collapsed) — failure notifications are NOT reaching anybody"
+    ⇒ F-4 closed: 19 delivery records are 3 stuck mails; the stale host inflated the
+      triage signal 6×, which is exactly the defect the repo fix addressed.
+
+NEGATIVE test — force the mirror target onto the root filesystem (temp copy, ARCHIVE_HEALTH
+  rewritten to /var/tmp/negtest/health, device 64513 == root):
+  guard line      49:ARCHIVE_HEALTH="/var/tmp/negtest/health"
+  dev=64513 root=64513
+  files written into the target   = 0                (REFUSED — proves it is not a name check)
+  run log line                    = "[23:05:51] alert mirror SUPPRESSED: /var/tmp/negtest/health
+                                      shares the root device (64513) — evidence disk not mounted,
+                                      refusing to write alerts onto /"
+  run rc = 1                                         (unchanged; suppression is not a crash)
+
+Post-state verification:
+  sha256sum /usr/local/bin/jol-health-check.sh  ec3709c993c978fe…  == repo copy (byte-identical)
+  stat -c '%a %U:%G'                            750 root:root      (mode/owner preserved)
+  bash -n                                       HOST_SYNTAX_OK
+  find scripts/ -name '*.sh' -exec shellcheck -x {} +   rc=0 (whole tree clean)
+
+Cadence correction recorded while verifying this fix:
+  The 15-minute run cadence in the hv01 log is NOT an hv01 systemd timer
+  (`systemctl list-timers` on pve lists no jol unit; `crontab -l` → "no crontab for root";
+  /etc/cron.d/jol-health = `0 6 * * *`). It is the WORKSTATION user timer
+  `jol-fleet-health.timer` (~/.config/systemd/user/, installed 2026-10-24, active,
+  last 23:02:57 → next 23:17:57) executing `jol-fleet-health-pull.sh`, which SSHes here and
+  runs the watchdog. Host-local schedule is therefore once daily; detection freshness depends
+  on the workstation being up. docs/servers/pve-prod-hv01.md Monitoring row corrected.
+
+Not cleaned up (test artifacts, volatile /tmp, contain no secrets):
+  pve:/tmp/hc-neg.sh, pve:/tmp/hcneg.out, pve:/tmp/hc-run.out, empty pve:/var/tmp/negtest/health
+
+Rollback (proven path, single command):
+  cp -p /root/prechange-20261031-230501/jol-health-check.sh.bak /usr/local/bin/jol-health-check.sh
+  sha256sum /usr/local/bin/jol-health-check.sh    # must read 459de970…
+  The mirror log is additive (appended lines are real CRITICALs), so rollback does NOT truncate
+  it; ALERTS.log.mirror.bak is kept if the pre-change state must be restored byte-for-byte.

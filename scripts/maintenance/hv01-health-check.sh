@@ -47,6 +47,10 @@ export PATH
 
 LOG_DIR="/var/log/jol-hv01"
 ARCHIVE_HEALTH="/mnt/hdd-archive/health"
+# Device identity of / — resolved HERE, before alert() can ever run, because the alert mirror
+# guard needs it (the script is `set -u`, so a late reference would abort a run mid-alert).
+# Gate 0 below reuses the same value for the mount-reality check.
+ROOT_DEV="$(stat -c '%d' /)"
 DATE_TAG="$(date +%Y-%m-%d)"
 LOG="${LOG_DIR}/${DATE_TAG}-health.log"
 ALERT="${LOG_DIR}/ALERTS.log"
@@ -70,7 +74,22 @@ alert() {
     printf '[%s] CRITICAL: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" |
         tee -a "$ALERT" "$LOG"
     # Mirror to the HDD only if it is genuinely mounted (never create dirs on /).
-    if findmnt -n -o SOURCE "$ARCHIVE_HEALTH" >/dev/null 2>&1; then
+    # ⚠ FIXED 2026-10-31 (issue #124, finding F-2). The guard was
+    #   `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"`: findmnt resolves MOUNT POINTS, and
+    #   ARCHIVE_HEALTH is a SUBDIRECTORY of the /mnt/hdd-archive mount, so the test returned
+    #   empty on every run and the mirror never wrote — measured: the HDD copy was frozen at
+    #   2026-10-21 (420 lines) while /var/log/jol-hv01/ALERTS.log kept recording (714 lines).
+    #   `findmnt -T` is deliberately NOT used: it resolves any path to its containing mount
+    #   INCLUDING /, so with the disk unmounted the guard would pass and alerts would be
+    #   written onto the root filesystem — the exact 2026-10-21 failure class. Device identity
+    #   is the sound test: unmounted or drifted to root ⇒ same device as / ⇒ refuse.
+    #   Measured 2026-10-31: / = 64513, /mnt/hdd-archive = /mnt/hdd-archive/health = 2050.
+    #   No alert() call here: alert() must never recurse into itself. Suppression is logged.
+    if [[ ! -d "$ARCHIVE_HEALTH" ]]; then
+        info "alert mirror SUPPRESSED: $ARCHIVE_HEALTH absent"
+    elif [[ "$(stat -c '%d' "$ARCHIVE_HEALTH" 2>/dev/null)" == "$ROOT_DEV" ]]; then
+        info "alert mirror SUPPRESSED: $ARCHIVE_HEALTH shares the root device ($ROOT_DEV) — evidence disk not mounted, refusing to write alerts onto /"
+    else
         printf '[%s] CRITICAL: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >>"$ARCHIVE_HEALTH/ALERTS.log"
     fi
 }
@@ -82,7 +101,7 @@ probe_missing() { alert "probe unavailable: $1 not found (PATH=$PATH) — gate $
 info "=== JOL HEALTH CHECK START ==="
 
 # --- 0. Mount reality (the 2026-10-21 failure class) ------------------------
-ROOT_DEV="$(stat -c '%d' /)"
+# ROOT_DEV is resolved in the config block above (the alert mirror guard needs it too).
 for pair in "/mnt/hdd-iso:/dev/sda1" "/mnt/hdd-archive:/dev/sda2"; do
     mnt="${pair%%:*}"; want="${pair##*:}"
     src="$(findmnt -n -o SOURCE "$mnt" 2>/dev/null || true)"
