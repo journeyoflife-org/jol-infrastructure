@@ -148,7 +148,11 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
   `/etc/pve/qemu-server/10*.conf` and in the archives already pushed to pbs01, which age out only
   with retention. PVE masks the field to `**********` on the API, so the surface is pmxcfs reads and
   archives, not the Web UI. Rotating the cloud-init password is Option A of #128 and must be typed
-  by the operator (Vaultwarden + Ansible Vault first, `qm set` per VMID with a pre-change snapshot).
+  by the operator; **no provisioning path in this repo sets `cipassword`** (measured 2026-11-01:
+  `scripts/provisioning/prox01-create-vm20{5,7}*.sh` create VMs with `--sshkeys` and never a
+  password; grep over `ansible/`/`terraform/`/`scripts/`/`inventory/` finds the field only in
+  `hv01-config-backup.sh`), so the only custody store for the value is Vaultwarden and rotation does
+  not strand any code path here.
 - **Still open (unchanged)**: GC's first real run is 2026-11-07 (reclaim proof owed), no off-site
   remote sync, mail alert transport dead, no node_exporter/netdata on this host, and vm/101 has never
   been restore-drilled (vm/100 ✅ 2026-10-31T21:58Z, vm/102 ✅ 2026-10-22).
