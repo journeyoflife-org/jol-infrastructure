@@ -31,7 +31,7 @@ fmt:  ## Format Terraform files
 	terraform fmt -recursive terraform/
 
 .PHONY: lint
-lint: lint-yaml lint-shell lint-terraform  ## Lint all code
+lint: lint-yaml lint-shell lint-terraform lint-changelog  ## Lint all code
 
 .PHONY: lint-yaml
 lint-yaml:  ## Lint YAML files
@@ -50,6 +50,11 @@ lint-terraform:  ## Validate Terraform per environment
 		echo "  → $$env" ; \
 		(cd "terraform/environments/$$env" && terraform init -backend=false -input=false > /dev/null 2>&1 && terraform validate) || exit 1 ; \
 	done
+
+.PHONY: lint-changelog
+lint-changelog:  ## Check CHANGELOG.md rows are valid table rows (issue #134)
+	@echo "$(GREEN)Checking CHANGELOG table structure...$(NC)"
+	python3 scripts/maintenance/check-changelog-table.py --self-test
 
 .PHONY: opa-test
 opa-test:  ## Run OPA policy tests

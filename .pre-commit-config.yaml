@@ -44,6 +44,22 @@ repos:
       - id: shellcheck
         args: [-x]
 
+  # --- Repo-local structural checks ---
+  # `language: system` so no network fetch is needed. NOTE FOR WHOEVER INSTALLED THIS:
+  # `pre-commit install` has never been run on this working copy (`.git/hooks/pre-commit`
+  # is absent), so these hooks are advisory until installed — the same controls are
+  # reachable via `make lint` / the CI jobs. Added for issue #134: 6 rows of the CC8.1
+  # evidence table contained unescaped `|` and rendered with phantom columns, and no
+  # existing gate could see it (infra-validate.yml skips docs-only pushes entirely).
+  - repo: local
+    hooks:
+      - id: changelog-table
+        name: CHANGELOG Table Structure
+        entry: python3 scripts/maintenance/check-changelog-table.py --self-test
+        language: system
+        files: ^CHANGELOG\.md$
+        pass_filenames: false
+
   # --- General ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
