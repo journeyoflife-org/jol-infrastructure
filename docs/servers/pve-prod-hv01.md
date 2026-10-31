@@ -147,8 +147,21 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
   archive). That stops the *growth* of the exposure — the hash is still present in
   `/etc/pve/qemu-server/10*.conf` and in the archives already pushed to pbs01, which age out only
   with retention. PVE masks the field to `**********` on the API, so the surface is pmxcfs reads and
-  archives, not the Web UI. Rotating the cloud-init password is Option A of #128 and must be typed
-  by the operator; **no provisioning path in this repo sets `cipassword`** (measured 2026-11-01:
+  archives, not the Web UI. **Rotation (Option A of #128) is now one command and still the operator's
+  to type:** `ssh -t pve 'sudo jol-rotate-cipassword.sh 100 101 102'` — it snapshots each VMID first
+  (§0.3; a PVE snapshot carries the VM *config* too, which is why a `.conf` holds inline `[snapshot]`
+  sections), reads the new value with `read -rs`, applies it, proves the change by comparing
+  **truncated sha-256 digests of the line** (never the value), then re-runs the archive gate. It
+  **refuses to run without a TTY**, so no automation agent can complete a credential rotation —
+  verified: the installed helper (`/usr/local/bin/jol-rotate-cipassword.sh`, sha `6e322a7bf27d…` ==
+  repo, `750 root:root`) exited 1 on a no-TTY call having created **0** snapshots and changed nothing.
+  Two things stated rather than smoothed over: the value is transiently in `argv` for root on this host
+  during `qm set` (PVE 9 offers no alternative — `/usr/share/perl5/PVE/CLIHandler.pm` contains no
+  interactive-prompt mechanism, `grep -c prompt` → 0; and my earlier claim that *"`qm set --help` does
+  not list `cipassword`"* is **withdrawn**, because `qm set --help` is not a PVE 9 verb at all — it
+  answers `Unknown option: help`, so it proved nothing), and a root-writable script that prompts for a
+  secret is itself a tamper target, mitigated by `750 root:root` plus the §3d digest pair rather than
+  claimed away. **No provisioning path in this repo sets `cipassword`** (measured 2026-11-01:
   `scripts/provisioning/prox01-create-vm20{5,7}*.sh` create VMs with `--sshkeys` and never a
   password; grep over `ansible/`/`terraform/`/`scripts/`/`inventory/` finds the field only in
   `hv01-config-backup.sh`), so the only custody store for the value is Vaultwarden and rotation does
@@ -210,9 +223,11 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 > backups land (7 groups per VMID, all inside 26 h), evidence replicated, retention (`pbs-store-prune`),
 > datastore usage < 80 % (measured on pbs01: ~3.5 %), VM data untouched (all `scsi0` on `local-lvm`; the
 > repeated `scsi0:` lines are PVE inline snapshot sections, not duplicate options), mounts real, evidence
-> fresh, NTP Normal. ⚠ NOT verified — GC schedule (empty), restore-without-key negative test, per-VMID
-> drill for 100/101 (only vm/102 drilled), and the `pbs01.pw`/`enc` permission pair (not re-read this
-> session; the files are secret material and stay location-only).
+> fresh, NTP Normal. ✅ vm/100 restore-drilled 2026-10-31T21:58Z (issue #131) and GC is now
+> **scheduled** (issue #126, first run 2026-11-07 04:30) — scheduled ≠ proven: the reclaim evidence
+> (`last-run-state OK`, `removed-bytes` non-zero) is owed on 2026-11-07. ⚠ NOT verified — the
+> restore-without-key negative test, a vm/101 drill, and the `pbs01.pw`/`enc` permission pair (not
+> re-read this session; the files are secret material and stay location-only).
 
 ```text
 □ HDD present:          lsblk -o NAME,SIZE,MOUNTPOINT,MODEL /dev/sda
@@ -291,3 +306,4 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 | 2026-10-25 | Phase-7 host-evidence push went live: `/etc/cron.d/jol-hv01-archive` (`45 3 * * *` → `hv01-archive-to-pbs.sh`). First archive `host/pve-prod-hv01/2026-10-25T00:45:01Z`; every night through 2026-10-31 present and `completed OK` | `/var/log/jol-hv01/archive-pbs.log`; `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §4 |
 | 2026-10-31 | **Backup baseline re-verified read-only; every "no backup exists" statement on this page and on rag/mcp/her corrected to the live state.** 9 consecutive scheduled OK nightlies; 7 groups per VMID on pbs01; RPO 24 h met (newest 20.6 h). New findings raised, NOT remediated: **F-2** the watchdog's HDD `ALERTS.log` mirror is dead since 2026-10-21 (`findmnt` given a subdirectory instead of the mountpoint — `scripts/maintenance/hv01-health-check.sh:73`); **F-3** `/etc/pve/qemu-server/10*.conf` carry a `cipassword:` sha256crypt hash of the cloud-init user password on the admin plane, which the weekly `/etc/pve` tarball exclusion rule (keys/`priv`) does not cover. Still open: GC unscheduled, no off-site remote sync, mail transport dead, no node_exporter/netdata | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
 | 2026-10-31 23:05Z | **PRODUCTION CHANGE (issue #124) — F-2 alert-evidence mirror repaired + F-4 host/repo drift closed.** `findmnt` mount-point guard replaced by a **device-identity** guard (`stat -c '%d'` vs `ROOT_DEV`, `ROOT_DEV` moved into the config block for `set -u` safety), with suppression logged instead of silent skip; the `findmnt -T` recommendation from the 20:45Z entry is **withdrawn** because `-T` resolves to `/` when the disk is unmounted and would have re-opened the 2026-10-21 write-onto-root failure class. Deployed `pve:/usr/local/bin/jol-health-check.sh` sha `459de970…`(340 lines, stale, gate-13 rewrite never installed) → `ec3709c9…` == repo (382 lines), mode 750 root:root. **Positive test**: mirror 420 → 422 lines (delta = 2 real CRITICALs), mtime today. **Negative test**: target forced onto the root device (64513) → **0 files written** + `alert mirror SUPPRESSED … refusing to write alerts onto /`. **Gate-13 proof of reconciliation**: alert text changed from `19 message(s)` to `3 outward message(s) … (19 delivery records, retries collapsed)`. `bash -n` clean, repo-wide `shellcheck` rc=0. Rollback: restore `/root/prechange-20261031-230501/jol-health-check.sh.bak`. Also corrected on this page: the "15 min timer on hv01" wording — the 15-min cadence is the **workstation** `jol-fleet-health.timer` pulling over SSH; hv01's own schedule is `0 6 * * *` (measured: no hv01-side timer). No storage/ACL/firewall/`/etc/pve` change; no secret read or printed | issue #124; `/root/prechange-20261031-230501/`; `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §8 |
+| 2026-11-01 00:20Z | **F-3 made finishable by one operator command, and two of my own claims corrected (issue #128).** Installed `pve:/usr/local/bin/jol-rotate-cipassword.sh` (repo `scripts/maintenance/pve-rotate-cipassword.sh`, sha `6e322a7bf27d…` == repo, `750 root:root`, `bash -n` OK, tree-wide `shellcheck` rc=0 after one SC2012 fix): §0.3 snapshot per VMID → `read -rs` (hidden) → `qm set --cipassword` → change proven by comparing **truncated digests of the line**, never the value → re-runs `hv01-config-backup.sh` into a temp `DEST_DIR` to prove the archive gate still holds → prints the console-proof step and the rollback order. **The script refuses to run without a TTY** (`[[ ! -t 0 ]] → exit 1`), which turns "operator-only" from an instruction into a mechanism: measured, a no-TTY invocation refused with **0** snapshots created and no prechange dir left behind, and the usage/validation paths (`no args`, `VMID 999 has no config`) both exit correctly. **Claims corrected:** (1) I had written that `qm set --help` lists no `cipassword`; that is **withdrawn** — `qm set --help` is not a PVE 9 verb (`Unknown option: help`, 72 bytes of output), so my `grep -c` → 0 measured nothing; (2) the real finding behind it stands — PVE 9's CLIHandler has no interactive-prompt mechanism (`grep -c prompt /usr/share/perl5/PVE/CLIHandler.pm` → 0), therefore `qm set` must receive the value as an argument and the transient `argv` exposure to root-on-this-host is stated as an accepted residual, not hidden; (3) a root-writable helper that prompts for a secret is itself a tamper target — mitigated by mode `750 root:root` and the §3d digest pair, not claimed away. **State of the finding:** replication stopped (archive sanitised, fail-closed), rotation **not yet performed** (measured: conf mtimes still 2026-10-31 02:00, `pre-f3` snapshot count 0 on all three VMIDs, digests unchanged) → #128 stays OPEN until the operator runs the command and proves console login | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §9c; issue #128; refusal test transcript 2026-11-01T00:19Z |
