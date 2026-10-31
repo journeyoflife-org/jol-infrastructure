@@ -139,6 +139,20 @@ Rules enforced on this host (runbook `docs/runbooks/hv01-storage-backup-reconfig
   so the watchdog gates are the real detection layer, not this job's notification setting. Both
   CRITICALs re-raised on every run today (`3 outward message(s)` + `never verified end-to-end`).
 
+- **F-3 — `cipassword:` on the admin plane: replication stopped 2026-11-01T00:03Z, rotation still
+  the operator's step (issue #128).** `hv01-config-backup.sh` now builds the weekly archive through a
+  staging copy in which every `^cipassword:` line is replaced by a marker, and **refuses to publish**
+  if any un-stripped value survives or if the gate finds 0 `qemu-server` members (measured before:
+  3 confs / 9 values travelling; after: 3 confs / 9 markers / 0 values; fail-closed copy: rc=1, no
+  archive). That stops the *growth* of the exposure — the hash is still present in
+  `/etc/pve/qemu-server/10*.conf` and in the archives already pushed to pbs01, which age out only
+  with retention. PVE masks the field to `**********` on the API, so the surface is pmxcfs reads and
+  archives, not the Web UI. Rotating the cloud-init password is Option A of #128 and must be typed
+  by the operator (Vaultwarden + Ansible Vault first, `qm set` per VMID with a pre-change snapshot).
+- **Still open (unchanged)**: GC's first real run is 2026-11-07 (reclaim proof owed), no off-site
+  remote sync, mail alert transport dead, no node_exporter/netdata on this host, and vm/101 has never
+  been restore-drilled (vm/100 ✅ 2026-10-31T21:58Z, vm/102 ✅ 2026-10-22).
+
 **Fixed 2026-10-31 23:05Z — issue [#124](https://github.com/journeyoflife-org/jol-infrastructure/issues/124)**
 
 - **F-2 — alert-evidence mirror restored.** The guard was
@@ -229,6 +243,12 @@ because it is the reason watchdog gates 9/10 (jobs.cfg-vs-scheduler agreement, l
 □ Restore drill:        qmrestore of VMID 100 to scratch VMID 199 (NIC detached),
                         boot, service check, destroy 199 — logged in
                         docs/compliance/evidence/restore-test-<vmid>-<date>.log
+                        ✅ vm/100 PASSED 2026-10-31T21:58Z (issue #131, evidence §9a: 107 GB in
+                        137.8 s @743 MB/s, agent 80 s, destroyed clean, 4 min 48 s end-to-end);
+                        ✅ vm/102 2026-10-22; ⚠ vm/101 never drilled
+□ Credential fields in  tar xzOf <archive> --wildcards '*/qemu-server/*.conf' \
+   the config archive      | grep -cE '^cipassword: [^<]'                    → 0 (F-3 gate,
+                        enforced by the script itself since 2026-11-01: non-zero ⇒ refuse publish)
 □ VM data untouched:    grep -h '^scsi0' /etc/pve/qemu-server/*.conf → all local-lvm
 ```
 
