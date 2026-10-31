@@ -265,3 +265,80 @@ Rollback (proven path, single command):
   sha256sum /usr/local/bin/jol-health-check.sh    # must read 459de970…
   The mirror log is additive (appended lines are real CRITICALs), so rollback does NOT truncate
   it; ALERTS.log.mirror.bak is kept if the pre-change state must be restored byte-for-byte.
+
+================================================================================
+§9 21:53Z-21:58Z - VMID 100 restore drill (issue #131): PASSED
+   21:41Z-00:03Z - pbs01 gate 3 F-5 fix (#129) + config-archive F-3 fix (#128)
+================================================================================
+
+9a. VMID 100 RESTORE DRILL (rag-prod-lt01) - closes the second half of the runbook §4
+forward-only rule, which the 2026-10-22 drill did NOT satisfy (that one restored vm/102).
+
+Pre-checks: `qm status 199` -> "199.conf does not exist" (VMID free); thin pool `pve/data`
+data 5.94 % / meta 0.49 %; source = today's SCHEDULED backup
+`pbs01:backup/vm/100/2026-10-31T00:00:07Z` (not a hand-made dump).
+
+    $ qmrestore pbs01:backup/vm/100/2026-10-31T00:00:07Z 199 --storage local-lvm --unique 1
+      restore image complete (bytes=107374182400, duration=137.79s, speed=743.15MB/s)
+      restore_rc=0            # 66 % of the volume were zeroes => dedup AND decryption with
+                               # the stored client-side key both proven by a real write
+    $ qm set 199 --delete net0
+      update VM 199: -delete net0   # isolation BEFORE boot: the restored image still carries
+                                     # 10.40.40.10 while rag-prod-lt01 is live (ARP conflict)
+    $ qm start 199 ; qm agent 199 ping
+      agent_responsive=yes after 80s # decrypted image -> filesystem -> init -> qemu-ga
+    $ qm guest cmd 199 get-fsinfo
+      [ { "disk": [ { "bus": 0, "bus-type": "scsi", "dev": "/dev/sda15", ...
+      agent-commands-respond=yes    # correct verb; the 2026-10-22 note listed three that do
+                                     # not exist (qm guest info / guest-fsinfo / get-disks)
+    Production unaffected during the drill:
+      qm status 100                          -> status: running
+      qm guest exec 100 -- ... curl /health   -> "out-data" : "200"
+    Teardown:
+      qm stop 199 ; qm destroy 199 --purge
+        Logical volume "vm-199-disk-0" successfully removed
+        purging VM 199 from related configurations..
+      qm list                -> 100 rag / 101 mcp / 102 her (nothing else)
+      vm199_conf_present=no  vm199_lv_count=0  pool after 5.94 % (unchanged)
+    Window 21:53:42Z -> 21:58:30Z = 4 min 48 s end-to-end, so the RTO 4 h claim for THIS asset
+    is now supported by a measured restore instead of an assertion. The manual
+    vzdump-qemu-100-2026_08_12-23_26_27.vma.zst was NOT deleted (its retirement is a separate
+    record); the runbook §4 preconditions are now both met.
+
+9b. pbs01 WATCHDOG GATE 3 (F-5, issue #129), 21:41Z-21:42Z.
+    Baseline with the OLD installed script (sha ad056ff3..., run 21:41:45Z) logged:
+      "GC schedule: \"sat 04:30\"" + "GC pending-bytes: 0 GiB" + "COMPLETE (alerts=0)"
+      => green, while the number is the LAST GC RUN's tally and none had ever run.
+    After (sha 1036796f..., 21:42:01Z): "WARN: no garbage collection has EVER run on pbs-store -
+    pending-bytes is not a measurement yet", alerts=0, rc=0.
+    Fixture red/green: 5 passed / 10 failed against main's gate vs 15 passed / 0 failed against
+    the fix (scripts/maintenance/tests/test-pbs01-gate3.sh).
+
+9c. CONFIG-ARCHIVE SANITISATION (F-3, issue #128), executed 2026-11-01T00:03:15Z host-local.
+    Measured BEFORE (installed script, DEST_DIR pointed at a temp dir - the production
+    /mnt/hdd-archive/config-backup was NOT written by the test):
+      qemu_conf_members=3  cipassword_lines=9  cipassword_VALUES_unstripped=9  key_entries=0
+      => the 2026-10-21 "no key material" gate PASSES while a credential field travels, and
+      /mnt/hdd-archive is pushed to pbs01 nightly, so it travels off-host.
+    The FIRST attempt of the fix failed its own test, and that failure is the finding worth
+    keeping: strip and gate were anchored to `etc/pve/qemu-server/*.conf`, but pmxcfs archives
+    VM configs at `etc/pve/nodes/pve-prod-hv01/qemu-server/<vmid>.conf`, so STRIPPED=0 and the
+    gate inspected zero members while still reporting success. A control that cannot fail is not
+    a control. Both now match any depth, and the gate refuses to publish when it finds 0 conf
+    members (measured: an archive with no confs -> conf_members=0 -> refuse).
+    After (installed sha 9c61a1ff... == repo, 750 root:root, bash -n OK):
+      qemu_conf_members=3  cipassword_lines=9  cipassword_VALUES_unstripped=0  stripped_markers=9
+      key_entries=0  log line: "qemu_confs=3 cipassword_lines_stripped=9"
+    Fail-closed proof: with the sed disabled in a copy, publish was REFUSED -
+      "ERROR: cipassword value survived staging - refusing to publish (issue #128)" rc=1,
+      archives=0, `.new` leftovers=0.
+    Prechange kept pristine (c1a56589d717fe54...); the intermediate broken-path version (9c4c3782
+    ...) is preserved as .prev-run so the sequence stays auditable. PVE masks `cipassword` to
+    `**********` on the API (/usr/share/perl5/PVE/API2/Qemu.pm), so the surface is pmxcfs reads
+    and archives, not the Web UI. The credential ROTATION itself (Option A of #128) is the
+    operator's typed step and was NOT performed here; no password value was read or printed.
+
+Test artifacts left on pve (volatile, no secrets, values never printed):
+  /tmp/cfgbk-nostrip.sh, /tmp/nostrip.out, /tmp/empty-conf.tar.gz, /tmp/emptystage/etc,
+  /var/tmp/jol-cfgtest{,-old,-neg} (each a 132K test archive). Production dir still holds only
+  pve-config-20261018 / 20261021 / 20261025.tar.gz; cron entry unchanged (0 3 * * 0).

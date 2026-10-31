@@ -112,9 +112,15 @@ isolation is provided by the container runtime.
   statuses all `OK`, one task per night covering the three VMIDs).
 - Newest VMID 100 group `2026-10-31T00:00:07Z` — 20.6 h old at probe time ⇒ **RPO 24 h met**.
 - Client-side encryption on every group; the key is escrowed off-host (`/etc/pve/priv/storage/pbs01.enc`).
-- Restore drill **PASSED 2026-10-22** — but on the **vm/102** group (`qmrestore` to scratch
-  VMID 199, decrypted, guest agent answered after 80 s, scratch destroyed). A VMID 100-specific
-  restore has **not** been drilled: `⚠ UNVERIFIED — manual check required` for this group.
+- **Restore drill PASSED for THIS VMID on 2026-10-31T21:58Z** — `qmrestore` of
+  `pbs01:backup/vm/100/2026-10-31T00:00:07Z` (today's *scheduled* backup, not a hand-made dump) to
+  scratch VMID 199: 107,374,182,400 bytes in 137.8 s at 743 MB/s (66 % zeroes ⇒ dedup + decryption
+  with the stored key both proven), `net0` removed **before** the first boot (the image still carries
+  10.40.40.10 while this VM is live), guest agent responsive after **80 s**, `get-fsinfo` answered,
+  production `/health` still 200 throughout, then `qm destroy 199 --purge` with
+  `vm199_lv_count=0`. End-to-end 4 min 48 s ⇒ the RTO 4 h claim for this asset is measured, not
+  asserted. The earlier 2026-10-22 drill restored **vm/102** and proved the shared key, not this
+  group. Evidence: `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §9a, issue #131.
 - qemu-guest-agent installed for fs-consistent snapshots (used by `mode snapshot`).
 - Nightly application-level Qdrant snapshot (cron, 03:30 UTC) — on-VM only, NOT a substitute
   for the VM backup (it shares the NVMe device).
@@ -122,7 +128,7 @@ isolation is provided by the container runtime.
   (`proxmox-backup-manager remote list` → empty, verified 2026-10-31), so a site-loss event
   still takes the hypervisor and its backup custodian together.
 
-RPO: 24 h (met) | RTO: 4 h (target, drilled only for VMID 102).
+RPO: 24 h (met) | RTO: 4 h (measured 4 min 48 s for this VMID's restore path, 2026-10-31)
 
 **History**: on 2026-10-21 this page claimed a nightly PBS backup that did not exist (no
 datastore registered on the hypervisor, and the only `jobs.cfg` section was rejected by the
@@ -153,6 +159,7 @@ scheduler parser). The finding was recorded the same day and closed on 2026-10-2
 | 2026-08-08 | Ollama dependency restored: llm-prod-lt01 commissioned (Ollama 0.32.6 CPU-only, model mistral-7b-instruct). Gates: `/ready` qdrant/minio/ollama all up; sample `/query` end-to-end OK (67 s CPU-only latency, empty corpus) | gate run 2026-08-08 |
 | 2026-10-22 | **Off-host backup for VMID 100 went live** (runbook `docs/runbooks/hv01-storage-backup-reconfiguration.md`): pbs01 datastore registered on the hypervisor, ns `jol-hv01` created, first manual `vzdump` OK (107 GB group), API-created job `hv01-nightly-pbs` | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §17 |
 | 2026-10-31 | **Backup baseline re-verified read-only; this page's "Backup Enabled: NO (2026-10-21)" corrected to YES.** 9 consecutive scheduled OK nightlies; newest group `2026-10-31T00:00:07Z` (RPO 24 h met); `hv01-archive-to-pbs.sh` evidence push live since 2026-10-25; prune/verify jobs present; GC still unscheduled and no off-site remote. The AGENTS.md §2.1 gate "≥ 7 consecutive OK runs before retiring the 2026-08-12 manual dump" is now satisfied (9 of 7) — the file was **not** deleted (separate change record required) | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
+| 2026-10-31 21:58Z | **VMID 100 restore drill PASSED** (issue #131) — `vm/100/2026-10-31T00:00:07Z` → scratch VMID 199 with `net0` removed before boot, agent up in 80 s, destroyed clean (`lvs` residue 0), 4 min 48 s end-to-end, production `/health` 200 throughout. This is the second half of the runbook §4 forward-only rule (the 2026-10-22 drill restored vm/102 only); the manual 2026-08-12 dump was left in place — its retirement is its own record | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §9a |
 
 ## Maintenance Notes
 
