@@ -330,6 +330,43 @@ So: **you** run (a) on pbs01 and (b) in the Web UI; everything downstream is scr
 and verifiable from hv01 (`hv01-backup-onboard.sh`, currently gated off at gate 1 with
 "datastore 'pbs01' is not registered on this host" — proven, no changes made).
 
+### 3d. Installed-script drift gate (added 2026-10-31, closes the F-4 root cause)
+
+**Why this exists:** every script in phase 7/8 is installed by hand (`scp` + `chmod 750`) and no step
+compared the installed bytes to the repo. On 2026-10-31 the §0.3 pre-change sha check required before
+mutating `jol-health-check.sh` found the host running `459de970e312…` (340 lines) while the repo held
+`e6aaba5550da…` (382 lines) — the gate-13 rewrite committed 2026-10-24/25 (`dba6075`, `5e94787`) had
+**never been installed**, so for a week the fleet's own alert numbers were produced by the pre-fix
+code (live symptom: `19 message(s)` where the fixed gate says `3 outward message(s) … (19 delivery
+records, retries collapsed)`). This is the same root-cause class as MCP finding **M3** (manual deploy,
+no reconciliation) and it is now a **gate**, not a habit:
+
+```bash
+# [WORKSTATION] before AND after any script install — the two lines must print the same digest
+sha256sum scripts/maintenance/<script>.sh
+# [HOST] same file, installed path
+ssh pve 'sha256sum /usr/local/bin/<installed-name>'
+# if they differ, the install did not happen (or happened from a worktree that was never committed)
+diff -u <(ssh pve 'cat /usr/local/bin/<installed-name>') scripts/maintenance/<script>.sh
+```
+
+Rules that make the comparison meaningful:
+1. The digest must be taken from the **committed** file (`git show HEAD:<path> | sha256sum` if the
+   worktree is dirty) — a worktree sha is not a deliverable; the 2026-10-25 note in §7.2 recorded
+   exactly that mistake (`46d67e1975d6…`, "never committed").
+2. Record BOTH digests in the change entry (repo == host), never the intent.
+3. Owner/mode are part of the gate: `stat -c '%a %U:%G'` → `750 root:root`.
+4. The pbs01 counterpart is the same command against `pbs01:/usr/local/bin/jol-pbs01-health-check.sh`
+   (`ad056ff3979e…` as shipped), and the workstation pull script is checked with
+   `sha256sum ~/.local/bin/jol-fleet-health-pull.sh`.
+5. A script that is *supposed* to be identical on several hosts must be diffed across them, not just
+   against the repo — the watchdog's own `probe unavailable`/gate text differs silently otherwise.
+
+Current state measured 2026-10-31T23:05Z: `pve:/usr/local/bin/jol-health-check.sh` == repo
+`ec3709c993c9…`, `750 root:root` (issue #124). The gate is manual until it is wired into
+`hv01-backup-onboard.sh` / a future Ansible role — until then, treat "deployed" as UNVERIFIED
+unless a host `sha256sum` line is present in the entry claiming it.
+
 ## 4. Rollback
 
 | Phase | Rollback |
@@ -629,7 +666,7 @@ The design was therefore split into three layers that need **zero credentials**;
 
 | Layer | What | Where | Proof |
 |---|---|---|---|
-| 1 | watchdog **gate 13** — alert-transport liveness; counts `status=(bounced\|deferred)` in the postfix journal, never queue depth. **Revised 2026-10-24:** a decay-to-zero count is not proof, so it now ALSO requires a positive outward-delivery proof record (`jol-verify-alert-transport`) newer than 7 d | `scripts/maintenance/hv01-health-check.sh` → `pve:/usr/local/bin/jol-health-check.sh`, sha `459de970e312…` | fired `rc=1` with 2 CRITICALs: `ALERT TRANSPORT BROKEN: 4 message(s) …` + `alert transport NEVER VERIFIED end-to-end …` |
+| 1 | watchdog **gate 13** — alert-transport liveness; counts `status=(bounced\|deferred)` in the postfix journal, never queue depth. **Revised 2026-10-24:** a decay-to-zero count is not proof, so it now ALSO requires a positive outward-delivery proof record (`jol-verify-alert-transport`) newer than 7 d | `scripts/maintenance/hv01-health-check.sh` → `pve:/usr/local/bin/jol-health-check.sh`, sha `459de970e312…` ⚠ **stale citation — superseded 2026-10-31T23:05Z by `ec3709c993…` (issue #124: F-2 mirror guard + the never-installed gate-13 rewrite); see §3d** | fired `rc=1` with 2 CRITICALs: `ALERT TRANSPORT BROKEN: 4 message(s) …` + `alert transport NEVER VERIFIED end-to-end …` |
 | 2 | **pbs01 got a watchdog of its own** (10 gates: chrony quorum/offset, pool %, GC, prune+verify existence, per-group freshness parsed from UTC snapshot *names*, ACL drift, auditd local-only, fail2ban, services) | `scripts/maintenance/pbs01-health-check.sh` → `pbs01:/usr/local/bin/jol-pbs01-health-check.sh`, sha `ad056ff3979e…`, cron `15 6 * * *` | normal run `rc=0` + GC `WARN`; forced thresholds → 7 CRITICALs `rc=1`; executed on hv01 → `rc=2` host-guard abort |
 | 3 | **workstation pull** — runs both watchdogs over SSH every 15 min and raises a desktop alert | `scripts/maintenance/fleet-health-pull.sh` + `install-fleet-health-timer.sh` → `~/.local/bin/jol-fleet-health-pull.sh`, sha `2591b5b36fdd…`, `jol-fleet-health.timer` enabled | installer's own proof: service exits `rc=1` while transport is broken; every run logged to `~/.local/share/jol-fleet-health/pull.log` |
 
@@ -721,3 +758,4 @@ recipient: confirm in the PVE GUI (Datacenter → Notification → Matchers) tha
 | 2026-10-21 | Onboarding procedure made host-agnostic after the pbs01-only CLI was pasted into the workstation shell twice (§13): PBS Web UI is now the prescribed path (Permissions and Namespaces views answer the same questions with no CLI), a `[ -x /usr/bin/proxmox-backup-manager ]` guard precedes any CLI form, the ACL option is corrected to `--auth-id`, namespace ACL paths must come from the GUI picker, and a verified self-expiring loopback tunnel via hv01 is documented as the one-off access route (recorded as an access deviation) | `docs/compliance/evidence/hv01-storage-inspection-20261021.txt` §12–§13 |
 | 2026-10-23 | **Alerting made self-detecting without any credential (3 layers), and §6/§7.1 corrected again.** Layer 1 = hv01 watchdog gate 13 (postfix `status=(bounced\|deferred)` count, never queue depth) → live `rc=1` "81 message(s) bounced/deferred". Layer 2 = new **pbs01 watchdog** (10 gates) installed `750 root:root` + cron `15 6 * * *`; green `rc=0` + GC WARN, forced thresholds 7 CRITICALs `rc=1`, host guard `rc=2`. Layer 3 = workstation **fleet-health pull** on a 15-min systemd user timer. Two defects caught by testing before deploy: (a) both watchdogs wrote their `HEALTH CHECK COMPLETE` marker to the log file only (`info()` never touched stdout) so the pull's gate-coverage check would have raised a **permanent false UNVERIFIED alert on both hosts**; (b) the pull's `STATE` variable was declared "for silence detection" but never used — it now reports alert age (`last OK: 37 h ago`), notifies only on **change of the alert set** (digits masked) and announces recovery, because 96 identical dialogs a day train the operator to ignore the real one. Also corrected here: §6's GC gate still told the operator to run `garbage-collection create`, **a verb that does not exist in PBS 4.2** (§7.1 had already been corrected the same evening) — GC is a datastore property (`datastore update --gc-schedule`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §22; host shas `34799462193c…` / `ad056ff3979e…` / `2591b5b36fdd…` |
 | 2026-10-25 | **Gate 13 defect 3 fixed (repo + docs only, nothing deployed): the alert counted delivery RECORDS, not messages.** Measured live on hv01 — 14 records in the 24 h window = **3 distinct queue ids** (mail `70268321566` retried 12× plus two Gmail bounces), so the dialog said "14 message(s)" for three lost alerts. The gate now collapses to distinct queue ids, names the record total beside it, and falls back to the record count when a queue id cannot be parsed (can only over-count, never silently under-count). Fixtures → 10 cases / 11 assertions, run **both** directions: `11 passed, 0 failed` on the fix (`e6aaba5550da…`) vs `6 passed, 5 failed` on `HEAD` (`459de970e312…`, failing cases 1/4/6/9) — the controls demonstrably fail on the broken version. `shellcheck -x` clean on both files; the repo-wide CI command stays red only from pre-existing `scripts/audit/verify-basilica-*.sh` findings also on `origin/main`. **Also corrected: the §7.2 Telegram target state is impossible on this host** — `pvesh ls /cluster/notifications/endpoints` on PVE 9.2.10 offers `gotify/sendmail/smtp/webhook`, **no `telegram`** — so the fix is re-recommended as an authenticated postfix submission relay on `:465`/`:587` (both measured OPEN from hv01 while `:25` times out; new §7.3 verification checklist), which repairs both defects and keeps gate 13 + the verifier on the path alerts actually take. **Transport still dead after this change and both CRITICALs are true** (`relayhost` empty, only builtin `mail-to-root`, `/var/lib/jol-hv01/` absent, 1 mail stuck in `mailq`). ⚠ **Compliance gap flagged, not silently backfilled:** the 2026-10-23/24 watchdog deployments (a production change on two hosts) are recorded here and in evidence §22 but have **no `CHANGELOG.md` row**. No credential read, printed or handled; no production mutation in this session | this §7.2/§7.3; `scripts/maintenance/tests/test-hv01-gate13.sh`; workstation `~/.local/share/jol-fleet-health/pull.log` 2026-10-25 |
+| 2026-10-31 | **§3d installed-script drift gate added; PR #117 merged so §6's "Docs + change record" gate can finally close its last clause.** (1) The §0.3 pre-change sha check on `jol-health-check.sh` found the host 42 lines behind the repo — the gate-13 rewrite of 2026-10-24/25 had never been installed — so the fleet's alert numbers were still being produced by the pre-fix code (`19 message(s)` vs the fixed `3 outward message(s) … (19 delivery records …)`). That is F-4, the same manual-deploy class as MCP M3, and §3d turns the spot check that found it into a repeatable gate with 5 rules (committed-file digest, both sides recorded, mode/owner, pbs01 + workstation counterparts, cross-host diff). (2) **§7.2's stale sha citations are marked superseded in place** (`459de970e312…` → `ec3709c993…`, issue #124) rather than rewritten, and the 2026-10-25 note "the CI command stays red from pre-existing `verify-basilica-*.sh` findings" is now closed: those SC2034/SC2317 findings were fixed by deleting the dead code (`780b3e6`), and the tree-wide command is `rc=0`. (3) **PR #117 squash-merged 2026-10-31T21:16:48Z as `fe13218`**, so the 12 commits of this thread are on `main` and issue #116's "Issue closed still requires that merge" condition is met; the merge was attempted **without** `--admin` first and refused by the required-approval ruleset, then bypassed by the repository owner — disclosed in `CHANGELOG.md` (2026-10-31T21:16:48Z row) because it overrides a CC8.1 control. Post-merge `main` CI: run `41242841101` = success, 7/7 jobs. (4) Still open in this runbook: §6 ✘ Garbage collection (§7.1, executed later tonight — see the next row if present), ✘ Off-site copy (3-2-1), ✘ Alert transport (§7.2/§7.3, `:465` relay recommendation awaiting the operator), □ Negative encryption test, □ vm/100 + vm/101 restore drills | this §3d; `CHANGELOG.md` 2026-10-31 rows; `git rev-list --count 2a9a040..caa4988` = 12; `gh pr view 117` / `gh run view 41242841101` |
