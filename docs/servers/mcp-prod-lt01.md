@@ -11,7 +11,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | Model Context Protocol server, tool registry, agent integrations |
 | **SSH Policy**     | key-only                                   |
-| **Backup Enabled** | **yes (verified 2026-10-31)** — nightly `vzdump` on pve-prod-hv01 → pbs01 ns `jol-hv01`; VMID 101 newest snapshot `2026-10-31T00:00:10Z` |
+| **Backup Enabled** | **yes (re-verified 2026-11-01)** — nightly `vzdump` on pve-prod-hv01 → pbs01 ns `jol-hv01`; VMID 101 newest snapshot `2026-11-01T00:00:04Z` (10 consecutive OK local nights) |
 | **Monitoring**     | yes (node-exporter)                        |
 | **VMID**           | 101                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -62,12 +62,13 @@ UFW: default deny incoming, allow outgoing, enabled at boot (2026-08-03).
   Europe/Vilnius, `vmid 100,101,102`, `mode snapshot`, `compress zstd`, `prune-backups
   keep-daily=7,keep-weekly=4,keep-monthly=6`, `repeat-missed 1`) → datastore `pbs01` (active),
   namespace `jol-hv01`.
-- 9 consecutive scheduled OK runs (local nights 2026-10-23 → 2026-10-31); VMID 101 holds 7
-  groups, newest `2026-10-31T00:00:10Z` ⇒ **RPO 24 h met** (age 20.6 h at probe time).
+- **10** consecutive scheduled OK runs (local nights 2026-10-23 → **2026-11-01**, re-measured
+  2026-11-01T15:21Z from the hypervisor's task epochs); VMID 101 holds **8** groups, newest
+  `2026-11-01T00:00:04Z` ⇒ **RPO 24 h met** (age 15.4 h at probe time, `verification.state=ok`).
 - The bare repo `/opt/jol/git/jol-mcp-servers.git` and `/etc/jol-mcp/mcp.env` are **no longer
   single copies** — both are inside the VMID 101 disk image that is now replicated off-host and
   client-side encrypted.
-- **Restore drill PASSED for THIS VMID on 2026-11-01T22:41Z** (issue #135): `qmrestore` of
+- **Restore drill PASSED for THIS VMID on 2026-10-31T22:41Z** (issue #135): `qmrestore` of
   `pbs01:backup/vm/101/2026-10-31T00:00:10Z` → scratch VMID 199, 53,687,091,200 bytes in 10.3 s at
   4.97 GB/s with **91 % zeroes** (dedup + decryption with the stored key both proven by a real
   write), `net0` deleted **before** the first boot (the clone still carries `10.40.40.11` while this
@@ -80,6 +81,23 @@ UFW: default deny incoming, allow outgoing, enabled at boot (2026-08-03).
   key file found!`) — the fleet's first pass of the gate carried as `□` since 2026-08-01. Every
   earlier “decrypted successfully” claim depended on that key being mandatory; now it is measured.
   The key was restored and re-proven by a second successful restore minutes later (`rc=0`).
+- **Offline filesystem check of this VM's own restored image: EXECUTED 2026-10-31T23:04Z**
+  (issue #137) — `e2fsck -fn` over loop-mapped partitions of the scratch restore, image never
+  booted: `/boot` clean (rc=0); `/` rc=**4**, i.e. 24 orphan-list inodes + one zero-dtime deleted
+  inode + negative block/inode bitmap differences with the superblock still `state: clean`, and no
+  severe marker at all. vzdump logged `freeze`/`thaw`, so it is a quiesced copy carrying pending
+  deletion bookkeeping that ext4 clears at mount — which is what the successful boots demonstrated.
+  Recorded as an accepted residual, not as "clean". Relevance here: this guest holds
+  `/var/log/jol-mcp/audit.jsonl` (ADR-004 trail) and the only copy-on-host of the MCP deploy repo.
+- **That leg was re-run 2026-11-01T16:11Z on `vm/101/2026-11-01T00:00:04Z`, because the first one had
+  never opened the EFI partition** (issue #137, evidence §12b/§12c): the record claimed `fsck.vfat`
+  was absent on the hypervisor, which was false, and checking for real returns **rc=1 on the ESP** —
+  FAT dirty bit set ("was not properly unmounted") + a boot-sector/backup difference at offset 65.
+  `/` again rc=4 (38 orphan-list inodes + one zero-dtime, 0 severe markers), `/boot` rc=0 clean.
+  Accepted as a named residual: FAT has no journal, so the agent freeze leaves that marker in every
+  nightly image; clearing it would be a repair, and a proof exercise does not repair what it judges.
+  `audit.jsonl` therefore sits on a volume whose *content* integrity is measured (0 severe markers)
+  and whose *unmount cleanliness* is knowingly not — the log's recoverability is not in question.
 - Still open: the 3-2-1 "one off-site" leg (pbs01 `remote list` → empty, verified 2026-10-31);
   `/var/log/jol-mcp/audit.jsonl` inherits the same single-site exposure.
 
@@ -146,7 +164,8 @@ parser rejected. Recorded then, closed 2026-10-22 by `docs/runbooks/hv01-storage
 | 2026-08-18 | **M3 remediation** (P2 gate finding 2026-08-17): snapshot `pre-m3-fix-20260818-0014`; `/etc/jol-mcp/mcp.env` backed up (`.bak.20260818-0014`, 640 root:mcp-svc preserved) + `JOL_MCP_GIT_REPO_ROOT=/opt/jol/repos` added; inspectable work-tree clone provisioned at `/opt/jol/repos/jol-mcp-servers` (from `/opt/jol/git/jol-mcp-servers.git`, HEAD c226602, owned `mcp-svc:mcp-svc` — git safe.directory requires owner == invoking user); `jol-git-server` restarted; end-to-end MCP `tools/call git_status` → "Working tree clean" + audit.jsonl `Success`; re-gate 14/14 PASS (guest-exec-mcp-prod-lt01-20260818 log, jol-compliance audit-evidence) | qm guest exec session 2026-08-18 |
 | 2026-10-22 | VMID 101 included in the new hypervisor backup job `hv01-nightly-pbs` (first manual `vzdump` OK, 54 GB group in ns `jol-hv01`) | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §17 |
 | 2026-10-31 | **Backup baseline re-verified read-only; "Backup Enabled: NO (2026-10-21)" corrected to YES.** 9 consecutive scheduled OK nightlies, newest vm/101 group `2026-10-31T00:00:10Z`; vm/101 restore drill still NOT performed (the 2026-10-22 drill used vm/102) | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
-| 2026-11-01 22:41Z | **vm/101 restore drill PASSED (issue #135)** — `vm/101/2026-10-31T00:00:10Z` → scratch VMID 199, `net0` removed before boot, agent at 80 s, guest hostname confirmed as `mcp-prod-lt01`, destroyed clean with 0 LV residue; and the **negative-encryption test passed** for the first time in the fleet (key file aside → restore refused with `no encryption key file found`, rc=255; key restored and re-proven by a second successful restore). The bare repo, `mcp.env` and `audit.jsonl` are therefore now known-recoverable, not assumed | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §10 |
+| 2026-10-31 22:41Z | **vm/101 restore drill PASSED (issue #135)** — `vm/101/2026-10-31T00:00:10Z` → scratch VMID 199, `net0` removed before boot, agent at 80 s, guest hostname confirmed as `mcp-prod-lt01`, destroyed clean with 0 LV residue; and the **negative-encryption test passed** for the first time in the fleet (key file aside → restore refused with `no encryption key file found`, rc=255; key restored and re-proven by a second successful restore). The bare repo, `mcp.env` and `audit.jsonl` are therefore now known-recoverable, not assumed | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §10 |
+| 2026-10-31 23:04Z | **Offline `e2fsck` leg executed on this VMID's restored image (issue #137)** — `/boot` rc=0 clean; `/` rc=**4** (24 orphan-list inodes, one zero-dtime deleted inode, negative block/inode bitmap differences) with superblock `state: clean` and **no** severe marker; vzdump logged `freeze`+`thaw`, so it is a quiesced copy holding pending-deletion bookkeeping that ext4 clears at mount — accepted as a named residual, not retitled clean. Teardown verified by post-state (0 LV, 0 loop mappings, pool back to 5.93 %) after run 1 of the harness leaked both | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §11 |
 
 ## Maintenance Notes
 

@@ -256,3 +256,35 @@ Explicit approvals required:
 4. ✅ **EXECUTED 2026-09-19** — `jol-infrastructure` `.staging/` added to `.gitignore`
 
 > **Gate 4: PASS** — All four corrections executed and verified.
+
+## F-21 — the artifacts THIS audit cites are not retained in the repository (raised 2026-11-01, recorded, not fixed)
+
+**Finding.** Twelve citation lines across seven documents (six in this directory plus
+`docs/compliance/evidence/pbs01-admin-ssh-20261022.txt`) cite machine-readable evidence under
+`.staging/` — `phase2-inspection.json`, `phase3-deps.json`, `phase3-summary.txt`,
+`gate3-scope-verify.txt`, `gate3-infra-secrets.txt`, `phase4-dirty-trees/*`, `phase4-dirty-trees.json`,
+`phase5-architecture.json`, `phase5-summary.txt`, `step6-security-scan.json`, `step6-final-triage.py`,
+`phase7-compliance.json`, `g10-test.sh` — and `decision 4` above put `.staging/` in `.gitignore`
+(line 96). A cited artifact that is not in the repository is not evidence: an auditor reading
+`docs/audit/` cannot reproduce or even read the command output the finding rests on (§0.4 — "if you
+cannot verify, say so").
+
+**Verified state (read-only, 2026-11-01):** all cited paths still exist on the operator
+workstation; sizes 4 KB → 2.8 MB; `gate3-infra-secrets.txt` (18 lines) was opened and contains
+**file names, counts and stat output only — no secret values**, so it is safe to retain but was never
+committed. Nothing was deleted.
+
+**Why it is recorded and NOT fixed here.** Committing them is a real option but each path needs a
+content review first (scan output can quote a credential verbatim — the class of artifact that got
+this file its §0.1 rule), `step6-security-scan.json` is 2.8 MB against this repo's own 500 KB
+`check-added-large-files` hook, and a bulk drop of 2026-09 scratch into `docs/compliance/evidence/`
+would mislabel working files as retained evidence. The defensible options are (a) export the
+secret-free summaries to `docs/audit/evidence/` and repoint the 12 citations, or (b) annotate each
+citation as workstation-only and stop citing unreproducible artifacts in new records. That is a
+change-controlled decision, not a drive-by commit.
+
+**Rule going forward (the part that IS applied):** new control proofs must land in the repository,
+not in `.staging/` — see `scripts/maintenance/tests/` and finding F-15 in
+`docs/servers/pve-prod-hv01.md`, where the F-3 gate test was promoted out of `.staging/` for exactly
+this reason.
+

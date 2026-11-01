@@ -292,6 +292,20 @@ else
     if tar tzf "$NEWEST_TAR" 2>/dev/null | grep -qE 'etc/pve/priv|\.key$|\.pem$'; then
         alert "$(basename "$NEWEST_TAR") contains PRIVATE KEY material — fix hv01-config-backup.sh excludes and rotate the exposed keys"
     fi
+    # ⚠ ADDED 2026-11-01 (finding F-18, issue #128 follow-up). The gate above is a NAME pattern,
+    #   and F-3 is not a name: `cipassword:` is a FIELD inside a conf body, so an archive could
+    #   (and did, 2026-10-25) pass this gate while carrying 9 credential hashes. Detection of an
+    #   F-3 regression must not rest solely on the publishing script's own gate — if that script
+    #   drifts (F-4 class: the host copy is 42 lines behind the repo) the watchdog is the only
+    #   independent observer. Content check, and its reach is proven: 0 confs inspected is an
+    #   alert, not a pass (same "absence of measurement wearing a number" class as pbs01 gate 3).
+    CONF_REACH="$(tar tzf "$NEWEST_TAR" 2>/dev/null | grep -cE '/qemu-server/[^/]+\.conf$' || true)"
+    if (( CONF_REACH == 0 )); then
+        alert "$(basename "$NEWEST_TAR") exposes no qemu-server conf to inspect (unreadable archive or wrong layout) — F-3 credential check UNVERIFIED, not clean"
+    elif tar xzOf "$NEWEST_TAR" --wildcards '*/qemu-server/*.conf' 2>/dev/null |
+            grep -qE '^[[:space:]]*cipassword: [^<]'; then
+        alert "$(basename "$NEWEST_TAR") contains an UNSANITISED cipassword value — hv01-config-backup.sh strip/gate is broken; do NOT replicate this archive off-host (issue #128)"
+    fi
     if [[ "$(stat -c '%a' "$NEWEST_TAR")" != "600" ]]; then
         alert "$(basename "$NEWEST_TAR") mode $(stat -c '%a' "$NEWEST_TAR") — config backups must be 600"
     fi

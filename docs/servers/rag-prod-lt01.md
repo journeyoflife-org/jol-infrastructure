@@ -11,7 +11,7 @@
 | **Owner**          | jol-admin                                  |
 | **Purpose**        | RAG services, vector databases, document indexing, embeddings |
 | **SSH Policy**     | key-only                                   |
-| **Backup Enabled** | **yes (verified 2026-10-31)** — nightly `vzdump` on pve-prod-hv01 → pbs01 ns `jol-hv01`; VMID 100 newest snapshot `2026-10-31T00:00:07Z` |
+| **Backup Enabled** | **yes (re-verified 2026-11-01)** — nightly `vzdump` on pve-prod-hv01 → pbs01 ns `jol-hv01`; VMID 100 newest snapshot `2026-11-01T00:00:01Z` (10 consecutive OK local nights) |
 | **Monitoring**     | yes (node-exporter)                        |
 | **VMID**           | 100                                        |
 | **Hypervisor**     | pve-prod-hv01                              |
@@ -108,9 +108,11 @@ isolation is provided by the container runtime.
   (`schedule 02:00` Europe/Vilnius, `vmid 100,101,102`, `mode snapshot`, `compress zstd`,
   `prune-backups keep-daily=7,keep-weekly=4,keep-monthly=6`, `repeat-missed 1`) →
   datastore `pbs01` (`pvesm status` → active), namespace `jol-hv01`.
-- 9 consecutive scheduled OK runs, local nights 2026-10-23 → 2026-10-31 (`vzdump` task
-  statuses all `OK`, one task per night covering the three VMIDs).
-- Newest VMID 100 group `2026-10-31T00:00:07Z` — 20.6 h old at probe time ⇒ **RPO 24 h met**.
+- **10** consecutive scheduled OK runs, local nights 2026-10-23 → **2026-11-01** (re-measured
+  2026-11-01T15:21Z from the hypervisor's own task epochs: the Nov 1 run is
+  `2026-11-01T00:00:01Z`, status `OK`; one task per night covers all three VMIDs).
+- Newest VMID 100 group `2026-11-01T00:00:01Z` — 15.3 h old at probe time ⇒ **RPO 24 h met**
+  (8 groups held, `encrypted` fingerprint present, `verification.state=ok`).
 - Client-side encryption on every group; the key is escrowed off-host (`/etc/pve/priv/storage/pbs01.enc`).
 - **Restore drill PASSED for THIS VMID on 2026-10-31T21:58Z** — `qmrestore` of
   `pbs01:backup/vm/100/2026-10-31T00:00:07Z` (today's *scheduled* backup, not a hand-made dump) to
@@ -160,6 +162,7 @@ scheduler parser). The finding was recorded the same day and closed on 2026-10-2
 | 2026-10-22 | **Off-host backup for VMID 100 went live** (runbook `docs/runbooks/hv01-storage-backup-reconfiguration.md`): pbs01 datastore registered on the hypervisor, ns `jol-hv01` created, first manual `vzdump` OK (107 GB group), API-created job `hv01-nightly-pbs` | `docs/compliance/evidence/pbs01-admin-ssh-20261022.txt` §17 |
 | 2026-10-31 | **Backup baseline re-verified read-only; this page's "Backup Enabled: NO (2026-10-21)" corrected to YES.** 9 consecutive scheduled OK nightlies; newest group `2026-10-31T00:00:07Z` (RPO 24 h met); `hv01-archive-to-pbs.sh` evidence push live since 2026-10-25; prune/verify jobs present; GC still unscheduled and no off-site remote. The AGENTS.md §2.1 gate "≥ 7 consecutive OK runs before retiring the 2026-08-12 manual dump" is now satisfied (9 of 7) — the file was **not** deleted (separate change record required) | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` |
 | 2026-10-31 21:58Z | **VMID 100 restore drill PASSED** (issue #131) — `vm/100/2026-10-31T00:00:07Z` → scratch VMID 199 with `net0` removed before boot, agent up in 80 s, destroyed clean (`lvs` residue 0), 4 min 48 s end-to-end, production `/health` 200 throughout. This is the second half of the runbook §4 forward-only rule (the 2026-10-22 drill restored vm/102 only); the manual 2026-08-12 dump was left in place — its retirement is its own record | `docs/compliance/evidence/hv01-backup-baseline-20261031.txt` §9a |
+| 2026-11-01 16:11Z | **Offline filesystem check of THIS VMID's restored image — first time any backup of VMID 100 was opened without booting it** (issue #137, runbook §6): `vm/100/2026-11-01T00:00:01Z` → scratch VMID 199 (107 GB in 138.2 s @741 MB/s, 66 % zeroes), `losetup -f --show -P`, `e2fsck -fn` / `fsck.vfat -n`, never `-y`. `/` (p1, ext4) **rc=4** = 37 orphan-list inodes + one zero-dtime + negative block/inode bitmaps, superblock `state: clean`, **0** severe markers; `/boot` (p16) **rc=0 clean**; **ESP (p15, vfat) rc=1 — FAT dirty bit set** ("was not properly unmounted") + boot-sector vs backup difference at offset 65, accepted as non-severe because the restored copies boot and because clearing it would be a repair. `net0` never existed here (deleted before any inspection), teardown verified by post-state (`lv_count=0 loop_count=0`, pool 5.94 % → 5.94 %, VMs 100/101/102 running). Relevance to this guest: the Qdrant/MinIO corpora on `/` are GDPR Art. 9 data, so "the restored filesystem is structurally sound" is now a measured claim rather than an inference from a successful boot. Recorded residual: the ESP dirty bit is present in EVERY nightly image of this VM, not cleaned by design | evidence §12; host `/var/log/jol-hv01/offline-fsck-20261101-180639.log` (= 16:06:39Z, file names are host-local) |
 
 ## Maintenance Notes
 

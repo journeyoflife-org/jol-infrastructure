@@ -55,7 +55,8 @@ PRE_DIR="/root/prechange-$TS-cipassword"
 install -d -m 700 "$PRE_DIR"
 
 digest() { # sha-256 of the cipassword line, truncated: proves change, reveals nothing
-    grep -m1 '^cipassword:' "$1" 2>/dev/null | sha256sum | cut -c1-12
+    # Leading whitespace tolerated (F-20): an indented option line is still the credential field.
+    grep -m1 -E '^[[:space:]]*cipassword:' "$1" 2>/dev/null | sha256sum | cut -c1-12
 }
 
 echo "F-3 credential rotation — VMIDs ${VMIDS[*]} — $(date '+%F %T %Z')"
@@ -66,7 +67,7 @@ declare -A BEFORE
 for v in "${VMIDS[@]}"; do
     BEFORE[$v]="$(digest "/etc/pve/qemu-server/$v.conf")"
     cp -p "/etc/pve/qemu-server/$v.conf" "$PRE_DIR/$v.conf.before"
-    echo "  vm $v: cipassword lines=$(grep -c '^cipassword:' "/etc/pve/qemu-server/$v.conf") digest-before=${BEFORE[$v]:-none}"
+    echo "  vm $v: cipassword lines=$(grep -cE '^[[:space:]]*cipassword:' "/etc/pve/qemu-server/$v.conf") digest-before=${BEFORE[$v]:-none}"
     # PVE snapshots capture the VM CONFIG too (that is why a .conf holds inline
     # [snapshot] sections with parent:/snaptime:) — so this is a real rollback path.
     if qm snapshot "$v" "pre-f3-cipassword-$TS" >/dev/null 2>&1; then
@@ -109,15 +110,52 @@ PW=''; PW2=''      # drop from this shell's memory as soon as possible
 unset PW PW2
 
 # --- prove the archive gate still holds with the new values --------------------
+# ⚠ FIXED 2026-11-01 (finding F-16). The first version printed
+#     archive=$(basename "${A:-none}") values-unstripped=$(tar xzOf "$A" … | grep -c …) key-entries=$(tar tzf "$A" | grep -c …)
+#   and told the operator "0 and 0 is the pass condition". With `$A` empty (no archive matched),
+#   both `tar` calls FAIL and `grep -c` prints 0 anyway — measured on the workstation:
+#   `archive=none values-unstripped=0 key-entries=0`, tar rc=2. So the stated pass condition was
+#   satisfied by a NON-MEASUREMENT: exactly the class this fleet keeps excavating (gate 10's dead
+#   branch, gate 3's all-zero tally, F-3's own wrong-path first attempt). The counters are now
+#   gated on the archive existing AND on the gate having inspected at least one conf.
 echo "$LINE"
 echo "Verifying hv01-config-backup.sh still sanitises the archive (temp DEST_DIR, production untouched)…"
 if command -v hv01-config-backup.sh >/dev/null 2>&1; then
-    TV="/var/tmp/jol-rotate-verify-$TS"
+    TV="${JOL_ROTATE_VERIFY_DIR:-/var/tmp/jol-rotate-verify-$TS}"
+    # JOL_ROTATE_VERIFY_DIR exists only so the committed fixture
+    # scripts/maintenance/tests/test-pve-rotate-verify.sh can drive this block on a workstation
+    # without writing into /var/tmp. Unset in every real (operator) run.
     install -d -m 700 "$TV"
     if DEST_DIR="$TV" hv01-config-backup.sh > "$TV/run.log" 2>&1; then
         A="$(find "$TV" -maxdepth 1 -name 'pve-config-*.tar.gz' | sort | head -1)"
-        echo "  archive=$(basename "${A:-none}") values-unstripped=$(tar xzOf "$A" --wildcards '*/qemu-server/*.conf' 2>/dev/null | grep -cE '^cipassword: [^<]') key-entries=$(tar tzf "$A" | grep -cE 'etc/pve/priv|\.key$|\.pem$|\.srl$')"
-        echo "  (0 and 0 is the pass condition; the digests themselves are never printed)"
+        if [[ -z "$A" || ! -s "$A" ]]; then
+            echo "  VERIFY INCONCLUSIVE: hv01-config-backup.sh exited 0 but left no readable archive in $TV" >&2
+            echo "  — counters would read 0/0 without measuring anything; treated as FAILURE" >&2
+            tail -3 "$TV/run.log" >&2
+            fail=1
+        else
+            # `|| true` on every counter: pipefail would abort the run on a legitimate zero-match.
+            CONFS="$(tar tzf "$A" | grep -cE '/qemu-server/[^/]+\.conf$' || true)"
+            UNSTRIPPED="$(tar xzOf "$A" --wildcards '*/qemu-server/*.conf' 2>/dev/null | grep -cE '^[[:space:]]*cipassword: [^<]' || true)"
+            MARKERS="$(tar xzOf "$A" --wildcards '*/qemu-server/*.conf' 2>/dev/null | grep -cE '^[[:space:]]*cipassword: <STRIPPED' || true)"
+            KEYENT="$(tar tzf "$A" | grep -cE 'etc/pve/priv|\.key$|\.pem$|\.srl$' || true)"
+            echo "  archive=$(basename "$A") qemu_confs=$CONFS values_unstripped=$UNSTRIPPED stripped_markers=$MARKERS key_entries=$KEYENT"
+            # PASS = a gate that actually reached confs (CONFS>0) AND zero survivors AND zero keys.
+            # Expect stripped_markers to RISE after rotation: every `qm snapshot` taken above adds
+            # a `[snapshot]` stanza carrying the OLD hash (measured 2026-10-31: 9 lines pre-change
+            # = 1 live + 2/3/1 snapshot stanzas; +3 new snapshots ⇒ 12 after this run). A count of
+            # 9 after rotation would mean the snapshots were NOT taken — it is not the pass signal.
+            if (( CONFS == 0 )); then
+                echo "  VERIFY INCONCLUSIVE: 0 qemu-server confs in the archive — the F-3 gate inspected nothing" >&2
+                fail=1
+            elif (( UNSTRIPPED != 0 || KEYENT != 0 )); then
+                echo "  FAIL: credential or key material survived into the archive" >&2
+                fail=1
+            else
+                echo "  PASS: the archive gate holds with the new credential (values never printed)"
+                echo "  Left behind for you to remove (no secrets, stripped confs): $TV"
+            fi
+        fi
     else
         echo "  CONFIG-BACKUP FAILED — the refuse-to-publish gate fired or staging broke; see $TV/run.log" >&2
         tail -3 "$TV/run.log" >&2
@@ -125,6 +163,7 @@ if command -v hv01-config-backup.sh >/dev/null 2>&1; then
     fi
 else
     echo "  hv01-config-backup.sh not installed — cannot verify the archive path" >&2
+    fail=1
 fi
 
 # --- what only the operator can still prove ------------------------------------
@@ -138,6 +177,13 @@ if [[ $fail -eq 0 ]]; then
     echo "entry can be retired. Rollback if needed: qm rollback <vmid> pre-f3-cipassword-$TS"
     echo "  (a snapshot rollback needs the VM stopped; the .conf copies in $PRE_DIR are the"
     echo "   config-level fallback)."
+    echo "$LINE"
+    echo "TWO RESIDUALS F-3 KEEPS AFTER A SUCCESSFUL ROTATION — name them at close-out:"
+    echo "  1. the OLD hash does not disappear: it stays in every [snapshot] stanza of the live"
+    echo "     conf and in $PRE_DIR/*.conf.before (dir 700 root). Expiring the pre-change"
+    echo "     snapshots (qm delsnapshot) is the second half of the fix, and it is a §0.3 change."
+    echo "  2. qm rollback restores the OLD password into the live stanza, so any rollback"
+    echo "     invalidates the new Vaultwarden value until the console login is re-tested."
     exit 0
 fi
 echo "COMPLETED WITH FAILURES — check $PRE_DIR and the snapshots."

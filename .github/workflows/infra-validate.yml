@@ -17,6 +17,15 @@ on:
       - "helm/**"
       - "policies/**"
       - "scripts/**"
+      # Added 2026-11-01 (issue #134 follow-up, finding F-14): a direct push to `main` that touches
+      # only the CC8.1 evidence record used to trigger NO pipeline at all, because a `pull_request`
+      # run validates the PROPOSAL, not what landed. `CHANGELOG.md` and `docs/**` are where the
+      # compliance records live, so they are now in scope for the push path as well.
+      - "CHANGELOG.md"
+      - "docs/**"
+      - ".github/workflows/**"
+      - "Makefile"
+      - ".pre-commit-config.yaml"
   pull_request:
     branches:
       - main
@@ -31,6 +40,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # CC8.1 evidence-record structure + control fixtures
+  # Added 2026-11-01 (finding F-14, issue #134 follow-up). The checker this job runs was written
+  # after 6 rows of the change record rendered with phantom columns, but it was wired ONLY into
+  # `make lint-changelog` and a pre-commit hook that has never been installed on this working
+  # copy (`.git/hooks/pre-commit` absent, recorded in .pre-commit-config.yaml). Measured 2026-11-01:
+  # no CI job invoked it, so the guard could not fail a merge — a control that nothing runs is not
+  # a control. This job also executes the host-free watchdog-gate fixtures, which previously ran
+  # only by hand. It has NO `needs:`, so a secret-scan failure cannot mask a structural finding.
+  # ---------------------------------------------------------------------------
+  changelog-guard:
+    name: "📋 CC8.1 Record + Gate Fixtures"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: CHANGELOG table check (self-test first, then the real scan)
+        # stdlib-only python3, preinstalled on ubuntu-latest — no setup-python pin to verify
+        run: python3 scripts/maintenance/check-changelog-table.py --self-test
+
+      - name: Watchdog / helper gate fixtures (must be able to fail)
+        run: make test-gates
+
   # ---------------------------------------------------------------------------
   # Secret Scanning — TruffleHog
   # ISO 27001 A.8.4 / SOC 2 CC6.1

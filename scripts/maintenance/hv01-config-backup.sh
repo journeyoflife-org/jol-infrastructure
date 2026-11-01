@@ -33,6 +33,13 @@
 # The VM configs stay in the archive (they are recovery evidence); only the credential field
 # is neutralised, and the live /etc/pve is never touched.
 #
+# COUNT SEMANTICS (stated 2026-11-01 because "9" was read as a fixed expectation): a .conf carries
+# ONE `cipassword:` line per live stanza PLUS one per [snapshot] stanza (a PVE snapshot stores the
+# VM config too). Measured 2026-10-31: vm100 3 (1+2), vm101 4 (1+3), vm102 2 (1+1) = 9. After the
+# F-3 rotation takes one more snapshot per VMID the expected total is 12, not 9 — and it keeps
+# growing with every snapshot until the pre-change snapshots are expired. Both are stripped here;
+# what is NOT removed by this script is the old hash inside live /etc/pve snapshot stanzas.
+#
 # Idempotent, non-destructive apart from its own retention sweep, change-logged.
 # Usage: sudo hv01-config-backup.sh        (cron-friendly, non-interactive)
 # =============================================================================
@@ -44,17 +51,12 @@ STAMP="$(date +%Y%m%d)"
 TARGET="$DEST_DIR/pve-config-$STAMP.tar.gz"
 
 # Paths whose *configuration* is compliance evidence (SOC 2 CC8.1, ISO A.8.13/A.5.31):
-PATHS=(
-    /etc/pve
-    /etc/network/interfaces
-    /etc/fstab
-    /etc/lvm/lvm.conf
-    /etc/smartd.conf
-    /etc/sysctl.d/
-    /etc/ufw/
-    /etc/chrony/
-    /etc/fail2ban/
-)
+# SRC_PATHS is a TEST HOOK only (added 2026-11-01, issue #128 verification): it lets the committed
+# fixture scripts/maintenance/tests/test-hv01-config-backup-f3.sh exercise the strip AND both
+# publish gates against a synthetic tree on a workstation. The default is the production set, so
+# the cron run is unchanged; narrowing it can only make the fixture test less, never the real run.
+SRC_PATHS="${SRC_PATHS:-/etc/pve /etc/network/interfaces /etc/fstab /etc/lvm/lvm.conf /etc/smartd.conf /etc/sysctl.d/ /etc/ufw/ /etc/chrony/ /etc/fail2ban/}"
+read -r -a PATHS <<< "$SRC_PATHS"
 
 # Anything that looks like private key material is excluded, and the result is
 # verified before the archive is published.
@@ -93,11 +95,16 @@ STRIPPED=0
 # the strip would "succeed" at doing nothing — a control that cannot fail. Match any depth.
 while IFS= read -r conf; do
     [[ -e "$conf" ]] || continue
-    # Anchored to the line start on purpose: `cipassword` appears as a value elsewhere
-    # (e.g. in comments), and over-stripping would corrupt the recovery evidence.
-    n=$(grep -c '^cipassword:' "$conf" || true)
+    # Anchored to the line start (modulo indentation) on purpose: `cipassword` appears as a value
+    # elsewhere (e.g. in comments), and over-stripping would corrupt the recovery evidence.
+    # ⚠ Leading whitespace is tolerated since 2026-11-01 (finding F-20): PVE writes both the live
+    #   and the [snapshot] stanza options at column 0 (measured 2026-10-31: all 9 lines matched a
+    #   strict `^cipassword:`), but if the serialiser ever indents a section's options, a strict
+    #   anchor would let the value travel WHILE the gate below still reports zero survivors. An
+    #   indented option line is still an option line, so stripping it costs nothing.
+    n=$(grep -cE '^[[:space:]]*cipassword:' "$conf" || true)
     if [[ "$n" -gt 0 ]]; then
-        sed -i -E 's|^cipassword:.*|cipassword: <STRIPPED by hv01-config-backup.sh '"$STAMP"' — issue #128: the value lives in Vaultwarden, not in an archive>|' "$conf"
+        sed -i -E 's|^[[:space:]]*cipassword:.*|cipassword: <STRIPPED by hv01-config-backup.sh '"$STAMP"' — issue #128: the value lives in Vaultwarden, not in an archive>|' "$conf"
         STRIPPED=$((STRIPPED + n))
     fi
 done < <(find "$STAGE/etc/pve" -path '*/qemu-server/*.conf' -type f 2>/dev/null)
@@ -127,7 +134,7 @@ if (( CONF_N == 0 )); then
     exit 1
 fi
 if tar xzOf "$TARGET.new" --wildcards '*/qemu-server/*.conf' 2>/dev/null |
-        grep -qE '^cipassword: [^<]'; then
+        grep -qE '^[[:space:]]*cipassword: [^<]'; then
     echo "$(date '+%F %T') ERROR: cipassword value survived staging — refusing to publish (issue #128)" >&2
     rm -f "$TARGET.new"
     exit 1
@@ -136,7 +143,15 @@ fi
 mv "$TARGET.new" "$TARGET"
 chmod 600 "$TARGET"
 tar tzf "$TARGET" >/dev/null
-echo "$(date '+%F %T') OK: $TARGET mode=$(stat -c %a "$TARGET") size=$(du -h "$TARGET" | cut -f1) entries=$(tar tzf "$TARGET" | wc -l) qemu_confs=$CONF_N cipassword_lines_stripped=$STRIPPED"
+# ⚠ ADDED 2026-11-01 (finding F-17): the operator's console proof after an F-3 rotation grepped
+#   this line for a surviving-value count that was never printed ("values=0"), so a green-looking
+#   grep could only ever match nothing. The gate above already PROVES 0 survivors by refusing to
+#   publish, but a refusal is not evidence of the field's presence in the record — so the published
+#   archive is now measured and the counter printed. `|| true` because pipefail + `grep -c` on a
+#   legitimate zero-match would abort the run that is reporting success.
+SURVIVED="$(tar xzOf "$TARGET" --wildcards '*/qemu-server/*.conf' 2>/dev/null | grep -cE '^[[:space:]]*cipassword: [^<]' || true)"
+MARKERS="$(tar xzOf "$TARGET" --wildcards '*/qemu-server/*.conf' 2>/dev/null | grep -cE '^[[:space:]]*cipassword: <STRIPPED' || true)"
+echo "$(date '+%F %T') OK: $TARGET mode=$(stat -c %a "$TARGET") size=$(du -h "$TARGET" | cut -f1) entries=$(tar tzf "$TARGET" | wc -l) qemu_confs=$CONF_N cipassword_lines_stripped=$STRIPPED cipassword_markers=$MARKERS cipassword_values_unstripped=$SURVIVED"
 
 # Retention: sweep only this script's own naming pattern, inside its own directory.
 find "$DEST_DIR" -maxdepth 1 -name 'pve-config-*.tar.gz' -mtime "+$KEEP_DAYS" -delete
