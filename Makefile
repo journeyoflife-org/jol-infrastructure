@@ -56,6 +56,14 @@ lint-changelog:  ## Check CHANGELOG.md rows are valid table rows (issue #134)
 	@echo "$(GREEN)Checking CHANGELOG table structure...$(NC)"
 	python3 scripts/maintenance/check-changelog-table.py --self-test
 
+.PHONY: test-gates
+test-gates:  ## Run the watchdog/helper gate fixtures (scripts/maintenance/tests/)
+	@echo "$(GREEN)Running gate fixtures...$(NC)"
+	@for t in scripts/maintenance/tests/test-*.sh; do \
+		echo "  → $$t" ; \
+		bash "$$t" || exit 1 ; \
+	done
+
 .PHONY: opa-test
 opa-test:  ## Run OPA policy tests
 	@echo "$(GREEN)Running OPA tests...$(NC)"

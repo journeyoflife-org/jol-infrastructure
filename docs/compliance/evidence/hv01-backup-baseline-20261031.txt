@@ -170,7 +170,7 @@ SUMMARY — what is now true
 * Still open after this baseline: no off-site remote sync (3-2-1 leg), GC unscheduled,
   mail alert transport dead + no end-to-end proof record, no node_exporter/netdata on
   hv01, cipassword hash on the admin plane (F-3).
-  ~~HDD ALERTS.log mirror silently dead (F-2)~~ → FIXED 2026-10-31T23:05Z, see §8 / issue #124.
+  ~~HDD ALERTS.log mirror silently dead (F-2)~~ → FIXED 2026-10-31T21:05Z, see §8 / issue #124.
 
 F-2 root cause (fix executed later the same evening — see §8): the mirror guard was
 `findmnt -n -o SOURCE "$ARCHIVE_HEALTH"` where ARCHIVE_HEALTH=/mnt/hdd-archive/health
@@ -188,7 +188,7 @@ failure class the guard exists to prevent. The applied fix is a device-identity 
 measured proof of both branches is in §8.
 
 ================================================================================
-§8 EXECUTED 2026-10-31T23:05Z — F-2 mirror fixed + F-4 host/repo drift closed
+§8 EXECUTED 2026-10-31T21:05Z — F-2 mirror fixed + F-4 host/repo drift closed
    Change record: GitHub issue #124 (CC8.1, rollback plan in the issue body)
 ================================================================================
 
@@ -314,7 +314,7 @@ data 5.94 % / meta 0.49 %; source = today's SCHEDULED backup
     Fixture red/green: 5 passed / 10 failed against main's gate vs 15 passed / 0 failed against
     the fix (scripts/maintenance/tests/test-pbs01-gate3.sh).
 
-9c. CONFIG-ARCHIVE SANITISATION (F-3, issue #128), executed 2026-11-01T00:03:15Z host-local.
+9c. CONFIG-ARCHIVE SANITISATION (F-3, issue #128), executed 2026-10-31T22:03:15Z host-local.
     Measured BEFORE (installed script, DEST_DIR pointed at a temp dir - the production
     /mnt/hdd-archive/config-backup was NOT written by the test):
       qemu_conf_members=3  cipassword_lines=9  cipassword_VALUES_unstripped=9  key_entries=0
@@ -447,3 +447,349 @@ Final state: pbs01 active, three production VMs running, no scratch residue, key
 content/mode/owner. The 2026-11-01 02:00 nightly is the next scheduled proof that the key removal
 window left nothing broken (check `pvesh get /cluster/backup/hv01-nightly-pbs` next-run + a new
 snapshot per VMID, and that the pbs01 watchdog stays clean).
+
+================================================================================
+§11 23:02:43Z-23:04:52Z - the offline e2fsck leg of the restore drill (issue #137),
+      run twice: run 1 produced the finding AND leaked resources; run 2 cleared the
+      leak, captured the full output, and verified its own teardown
+================================================================================
+
+Why the leg existed. §6 carried it as `□` since 2026-08-01 and the 2026-10-22 attempt had silently
+skipped itself: `lvs -o lv_path local-lvm/vm-199-disk-0` is an invalid spec (the VG is `pve`;
+`local-lvm` is the PVE storage id), so the lookup printed nothing and the leg never ran while the
+run still looked complete. Probed read-only before touching anything:
+  VG naming   -> /dev/pve/vm-<vmid>-disk-0 is correct (snap_* LVs are the inline snapshots)
+  kpartx      -> MISSING on hv01, so partition mapping must use `losetup -f --show -P`
+  available   -> losetup, e2fsck 1.47.2, dumpe2fs, blkid, fdisk, sgdisk, partprobe
+  guest layout-> read with `qm guest exec` (never by mounting): sda1 49G ext4 /, sda14 4M BIOS,
+                 sda15 106M vfat /boot/efi, sda16 913M ext4 /boot => two ext4, one vfat
+  quiescing   -> the last vzdump task log has 2 'freeze' and 2 'thaw' lines (via
+                 `pvesh get /nodes/<n>/tasks/<upid>/log`), so snapshot mode DID use the agent —
+                 needed to interpret the results honestly
+
+RUN 1 (23:02:43 -> 23:03:12Z): restore of `vm/101/2026-10-31T00:00:10Z` -> VMID 199,
+  53,687,091,200 B in 10.44 s @4905 MB/s; `readlink -f /dev/pve/vm-199-disk-0` -> /dev/dm-13 and
+  asserted as a block device (the precondition that had been missing in 2026-10-22); loop /dev/loop0
+  mapped p1/p14/p15/p16, GPT confirmed by `fdisk -l`.
+    e2fsck -fn /dev/loop0p1  -> rc=4  "Filesystem still has errors"   (-n never repairs, by design)
+    e2fsck -fn /dev/loop0p16 -> rc=0  CLEAN (BOOT 604/58496 files)
+    dumpe2fs both: `Filesystem state: clean`, mount count 14
+  Teardown LOOKED fine (`purging VM 199`) but was not: `lv residue vm-199 = 1`, thin pool
+  5.93 % -> 6.47 %. Three bugs in my own harness, all the recurring class:
+    (a) `losetup -lx` is not a valid option on this util-linux (it errored) and `LOOP=''` had
+        already disarmed the trap, so the loop mapping was never detached;
+    (b) `qm destroy --purge` left the 50 GB thin LV orphaned ("Task finished with 1 warning(s)!");
+    (c) `tail -6` on the e2fsck output discarded the very lines that explain rc=4 — the summary
+        was reported and the evidence was thrown away.
+
+RUN 2 (23:04:52Z, same window): cleared run 1's residue first — detached the stale mapping, then
+  `lvremove -y pve/vm-199-disk-0` AFTER asserting `199.conf` absent (an in-use LV must not be
+  destroyed); re-restored; captured the FULL output (75 lines, host /tmp/jol-e2fsck-full.txt);
+  teardown verified by post-state: `conf_absent=yes  lv_count=0  loop_count=0  pool back to
+  5.93 %`, VMs 100/101/102 `running`.
+
+WHAT THE LEG FOUND (stated without laundering):
+  / (loop0p1, ext4, 123424/6422528 files, 1191455/12844795 blocks) rc=4:
+    - 24 inodes "were part of the corrupted orphan linked list": 2115, 4875, 5079, 5098-5099,
+      5104-5105, 5113, 5368, 5379, 5450, 6183, 6194, 6203-6204, 6208, 6250-6252, 6265, 6453,
+      6456, 6459, 7696, 7699-7710, 8209, 22778, 42094  -> IGNORED under -n
+    - "Deleted inode 5368 has zero dtime"
+    - Pass 5 block- and inode-bitmap differences, all NEGATIVE (bitmaps still claiming
+      since-freed blocks/inodes)
+  /boot (p16) rc=0 clean; /boot/efi is vfat and cannot be checked by e2fsck.
+  [CORRECTED 2026-11-01T16:06Z — see §12: this row went on to say "no fsck.vfat here", which was
+   FALSE. `command -v fsck.vfat` -> /usr/sbin/fsck.vfat (dosfstools 4.2-1.2, file mtime
+   2025-02-25, i.e. present since the host image). The ESP leg was then RUN on all three VMIDs.]
+  Searched for and ABSENT (count 0): UNEXPECTED INCONSISTENCY, "is corrupted", "Missing offset",
+  "Wrong blocks count", group-descriptor failures, fatal/structure errors. All five passes
+  completed and the summary counts are sane.
+  Reading, checked against the freeze evidence rather than assumed: a quiesced copy caught with
+  pending deletion bookkeeping (orphan list unreclaimed, bitmaps still counting freed blocks),
+  which ext4 resolves at the next mount or under `e2fsck -y`. Not structural damage — corroborated
+  by three restored copies that booted with the agent answering and the workload mounted.
+  Recorded as ACCEPTED WITH A NAMED RESIDUAL: an honest rc=4 is worth more than a laundered rc=0.
+
+Follow-ups opened (status as of §12, 2026-11-01T16:11Z):
+  1. same offline leg for vm/100 and vm/102 groups (only vm/101 checked offline so far);
+     CLOSED in §12 — all three run, and vm/101 re-run too (its 23:04Z leg never opened the ESP).
+  2. use `-y` on a scratch copy if a future run shows anything beyond orphan/bitmap pending work;
+     NOT TRIGGERED — §12 found nothing beyond the same orphan/zero-dtime/negative-bitmap class.
+  3. `fsck.vfat` absent on hv01 => the EFI partition stays unchecked by design;
+     WITHDRAWN — the claim was false (§12b), and the ESP has now been checked on all three.
+  4. the drill harness itself must be fixed: capture exit codes before pipes, `losetup -l` (not
+     `-lx`), verify teardown by post-state, and `lvremove` whatever `qm destroy` leaves behind.
+     CLOSED in §12 by `scripts/maintenance/hv01-offline-fsck-drill.sh`, installed as
+     `pve:/usr/local/bin/jol-offline-fsck-drill.sh`.
+
+================================================================================
+§12 15:15Z-16:11Z - the offline leg completed for ALL THREE VMIDs, one false claim
+      of my own withdrawn, one real finding found by withdrawing it, and the
+      harness made durable — plus the Nov 1 nightly verified (issue #137)
+================================================================================
+
+WHY THIS SECTION EXISTS. The 23:04Z leg (§11) closed vm/101 and left three things
+open; two of them were closed by a script, and one of them was a FALSE STATEMENT
+in my own record that hid a real defect.
+
+12a. NOV 1 NIGHTLY — VERIFIED, read-only, and the DST reasoning in §11 was right.
+     `pvesh get /nodes/pve-prod-hv01/tasks --limit 400` (UTC, explicitly converted):
+       2026-11-01T00:00:01Z vzdump OK      <- the run that was "not due yet" at §11
+       2026-10-31T00:00:07Z OK | 10-30T00:00:02Z OK | 10-29 OK | 10-28 OK | 10-27 OK | 10-26 OK
+       2026-10-24T23:00:09Z OK | 10-23T23:00:06Z OK | 10-22T23:00:01Z OK   (pre-DST, 02:00 EEST)
+     No local night is missing. The apparent gap on "Oct 25" is the zone switch, not a skipped
+     run: the 2026-10-24T23:00:09Z entry IS local Oct 25 02:00 EEST (DST ended 2026-10-25 in
+     Europe/Vilnius), and from Oct 26 the same 02:00 local lands on 00:00Z. Read in UTC the
+     streak looks broken; read in local time it is 10 consecutive scheduled OK nights.
+     `pvesm list pbs01 --content backup | grep -c vm/<v>/` -> 8 groups each (was 7); newest
+     vm/100 `2026-11-01T00:00:01Z`, vm/101 `...T00:00:04Z`, vm/102 `...T00:00:07Z`; all three
+     carry the same `encrypted` fingerprint 47:d6:12:27:36:9f:b1:95:… and the content endpoint
+     reports `verification.state=ok` on the Nov 1 groups.
+
+12b. THE `fsck.vfat` CLAIM WAS FALSE, AND IT WAS CLOSING A GATE.
+     §11 wrote "`fsck.vfat` absent on hv01 => the EFI partition stays unchecked by design".
+     Measured 2026-11-01T14:21Z: `command -v fsck.vfat` -> `/usr/sbin/fsck.vfat`; dpkg says
+     `dosfstools: Installed: 4.2-1.2`; the file's own mtime is 2025-02-25, i.e. it has been on
+     this host longer than the fleet has existed. So nothing was ever "by design" — the ESP leg
+     was simply never run, and the false sentence was the reason it would have stayed unrun.
+     HOW THE ERROR HAPPENED, stated because the mechanism matters more than the correction: I
+     probed a tool by its *name in my own vocabulary* (`e2fsck`, `dumpe2fs`, `blkid`, `fdisk`)
+     and recorded the absence of a *different package's* binary without probing for it. The
+     durable fix is in the script: the tool table is printed from a live `command -v` for every
+     binary it uses, and the run refuses to treat "absent" as a conclusion it did not measure.
+     CLASS: "a claim that cannot be falsified is not a control" — the same rule that produced the
+     negative-encryption test in §10, now turned on my own prose.
+
+12c. THE REAL FINDING THAT THE FALSE CLAIM WAS HIDING (all three VMIDs).
+     With the ESP actually checked (`fsck.vfat -n -v` over loop0p15 of each restored image):
+       vm/100 `2026-11-01T00:00:01Z` p15 rc=1 | vm/101 `...T00:00:04Z` p15 rc=1 | vm/102 p15 rc=1
+     Identical output on all three:
+       "There are differences between boot sector and its backup. This is mostly harmless.
+        Differences: (offset:original/backup) 65:01/00"
+       "Dirty bit is set. Fs was not properly unmounted and some data may be corrupt."
+       "Automatically removing dirty bit." -> then "Leaving filesystem unchanged." (because -n)
+       "/dev/loop0p15: 12 files, 12499/213663 clusters"
+     Reading, without laundering and without alarming: the FAT dirty bit means the ESP was mounted
+     read-write and not cleanly unmounted when vzdump took the copy. qemu-guest-agent's freeze
+     quiesces the journalled filesystems (that is why p1/p16 look like pending-deletion
+     bookkeeping and boot correctly); FAT has no journal, so its dirty marker simply survives into
+     the image. Consequences that ARE covered by evidence: the guests boot from these images —
+     three drills started the restored copy with `net0` removed and the agent answered, and §10
+     proved the identity (`qm guest exec 199 -- /bin/hostname` -> mcp-prod-lt01) — so the ESP
+     content is readable by the firmware/GRUB path. Consequence that is NOT: a restore taken to a
+     scratch VM is never mounted rw, so no dirty-bit cleanup was exercised; the first real boot of
+     a restored copy is where the ESP gets replayed.
+     SEVERITY: LOW, residual ACCEPTED AND NAMED. No production change requested: the fix would be
+     `fsck.vfat -atr` on a scratch copy, which is a REPAIR, and this thread's rule is that a proof
+     exercise never repairs what it is judging. The honest gap statement is now "the ESP in every
+     nightly image carries the FAT dirty bit; it is checked, it is non-severe, and it is not
+     cleaned", which replaces "it cannot be checked".
+
+12d. THE THREE LEGS, as measured (all via the new script, scratch VMID 199, never booted):
+     vm/100  group 2026-11-01T00:00:01Z  qmrestore 107,374,182,400 B in 138.21 s @740.88 MB/s
+             (66 % zeroes); p1 ext4 rc=4 -> 37 orphan-list inodes (1925, 2115, 3981, 3990, 3993,
+             3996, 4023-4034, 4875, 5079, 5098-5099, 5104-5105, 5113, 5379, 5450, 6194, 6204, 6208,
+             6250-6252, 6265, 8209, 22778, 28917) + "Deleted inode 6203 has zero dtime", Pass-5
+             block/inode bitmap differences all NEGATIVE (plus=0, minus=2), superblock `state:
+             clean`, 299713/12976128 files, 8934125/25951995 blocks; p14 (BIOS boot, no fs type)
+             SKIPPED-with-reason; p15 vfat rc=1 (§12c); p16 ext4 rc=0 CLEAN (BOOT 604/58496).
+     vm/102  group 2026-11-01T00:00:07Z  qmrestore 53,687,091,200 B in 9.36 s @5471.05 MB/s
+             (91 % zeroes); p1 rc=4 -> 35 orphan-list inodes (1919, 2115, 3334, 3480, 3496, 3981,
+             3990, 3993, 3996, 4019, 4021, 4023-4032, 4251, 4490, 5098-5099, 5104-5105, 6194, 6208,
+             6250-6252, 6265, 8209, 30852) + one zero-dtime, bitmaps negative, `state: clean`,
+             121285/6422528 files, 1131177/12844795 blocks; p15 rc=1 (§12c); p16 rc=0 CLEAN.
+     vm/101  group 2026-11-01T00:00:04Z  qmrestore 53,687,091,200 B in 10.62 s @4823.07 MB/s;
+             p1 rc=4 -> 38 orphan-list inodes (2115, 4875, 5079, 5098-5099, 5104-5105, 5113, 5379,
+             5450, 6183, 6194, 6203-6204, 6208, 6250-6252, 6265, 6453, 6456, 6459, 7696, 7699-7710,
+             8209, 22778, 42094) + one zero-dtime, bitmaps negative, `state: clean`,
+             123420/6422528 files, 1191741/12844795 blocks; p15 rc=1 (§12c); p16 rc=0 CLEAN. This run
+             exists because §11's vm/101 leg never opened the ESP.
+     NOTE, because it changes how the number should be read: the orphan count is NOT stable across
+     backups — vm/101's group of 2026-10-31 gave 24 orphans (§11), its group of 2026-11-01 gives 38,
+     vm/100 gives 37 and vm/102 gives 35. The count is whatever pending deletion existed at freeze
+     time, so a non-zero count is the EXPECTED shape of a quiesced live-filesystem copy; what would
+     be news is a severe marker, and none appeared on any of the six ext4 partitions checked.
+     Teardown verified by POST-STATE on all three: `conf_absent=yes`, `lv_count=0`, `loop_count=0`
+     against a baseline of 0, thin pool `pve/data` 5.94 % -> 5.94 %, and `qm list` reporting
+     100/101/102 running. Exit code of every run: 1 = CHECKED-WITH-RESIDUAL (by design, not a fail).
+     Full logs kept on host: /var/log/jol-hv01/offline-fsck-20261101-{180639,180616,181120}.log
+     (140/138/… lines, no secrets — the key was used through PVE, never read).
+
+12e. THREE MORE DEFECTS IN MY OWN HARNESS, each caught by re-reading output.
+     The script that was written to end the silent-skip class produced three of its own, and two
+     of them were reporting bugs that would have laundered a finding:
+       (i) `qm list | awk 'NR>1 && $2=="running"'` printed NOTHING, because the columns are
+           VMID / NODE / STATUS / NAME — `$2` is the node. A run whose own post-state line read
+           "running VMs: " (empty) looked like a fleet that had gone down, and could equally have
+           been read as "nothing to report". Now `$3=="running"`, plus an explicit rule that an
+           empty list is a FAILURE, plus `qm status <VMID>` must say running.
+       (ii) `[[ "$fstype" =~ ^fat ]]` does NOT match blkid's `vfat`. Consequence: the ESP's rc=1
+           was decoded by the e2fsck classifier ("errors CORRECTED", i.e. claiming a repair that
+           `-n` never does) AND fell through the severity branch, so it never reached the exit
+           code. Had the root filesystem been clean, the whole run would have exited 0 on a real
+           finding. Fixed with an `is_fat()` matcher and two self-test fixtures that pin it.
+       (iii) my RED TEST was itself invalid: `sed` replaced the expectation string as well as the
+           classifier, so the mutated script still passed 8/8 and I nearly recorded "guard proven".
+           Re-run with the mutation scoped to the function body (`awk '/^classify_/,/^}/'`), the
+           self-test then FAILED as required: `7 passed, 1 failed`, rc=1. A red that is not red
+           proves nothing.
+     Also measured, as a probe-honesty note: two of my own read-only probes in this session were
+     wrong before they were right — `pvesm … volid` filtered on `backup/vm/…` while the real volids
+     are `pbs01:backup/vm/…` (printed "groups: 0" for every VMID), and `qm listsnapshot | awk
+     'NR>4'` printed no snapshots at all because that command emits NO HEADER line (vm/100 has 2,
+     vm/101 has 3, vm/102 has 1 — including `pre-rag-deploy-20260807-1959`, the §2.1 gate entry).
+
+12f. WHAT IS DURABLE NOW (the root-cause elimination, §11 follow-up 4):
+     `scripts/maintenance/hv01-offline-fsck-drill.sh` -> installed `pve:/usr/local/bin/
+     jol-offline-fsck-drill.sh`, sha256 `6dbc6d8a167a7705…` identical on both sides, mode
+     `750 root:root`. `bash -n` clean, tree-wide `shellcheck -x` rc=0, `--self-test` 11/11 with a
+     proven-red fixture, `DRY_RUN=1` (default) verified to mutate NOTHING (199.conf absent, 0 LVs,
+     0 loop mappings, pool 5.94 % unchanged before and after the preview). It encodes: fail-closed
+     preconditions (scratch VMID must be free, group must exist, encryption fingerprint must be
+     present — empty is an abort, never a pass), restore-without-boot, LV asserted as a block
+     device, `losetup -f --show -P` because kpartx is genuinely absent here, per-partition dispatch
+     on the MEASURED blkid type, full output retained (never `tail`), exit codes captured before
+     any pipe, teardown that reclaims whatever `qm destroy --purge` leaves (only after asserting the
+     conf gone), and post-state verification. Re-run it for any VMID with
+     `sudo DRY_RUN=0 jol-offline-fsck-drill.sh --vmid <N>`.
+
+12g. F-3 STATE RE-MEASURED (issue #128, operator-gated, unchanged):
+     conf mtimes 100=`2026-11-01 02:00:04`, 101=`02:00:07`, 102=`02:00:10`; `pre-f3` snapshot count
+     0 on all three; cipassword LINE digests (truncated sha-256 of the line, never the value) still
+     `e21beb72c90d` / `89e8fb724c6d` / `afb69757ac6e` — identical to the values recorded at 22:20Z
+     (see §13: that clock was written into this file as `2026-11-01T00:20:00Z`, a local reading).
+     Note what the mtimes are NOT: evidence of a human edit. vzdump's own snapshot add/remove at
+     02:00 rewrites the .conf, which is why they track the nightly. Rotation therefore remains
+     undone and #128 remains OPEN until the operator runs the TTY-gated helper.
+
+12h. WHY THIS SECTION USES §12x ANCHORS AND NOT F- NUMBERS, plus a corroboration the
+     host can give and a chat cannot.
+     (a) NAMING. A second session is working issue #128's follow-ups in this same working
+         tree right now and is assigning F-14…F-21 as it goes (see `CHANGELOG.md`
+         2026-11-01T16:18:58Z). The three findings above are therefore anchored to §12b/§12c/
+         §12e instead of taking F-numbers, because a compliance register with two different
+         meanings for "F-9" is worse than one without an index. If these are ever promoted to
+         the F- series, renumber from the high end after #128's batch has settled.
+         UPDATE taken from `CHANGELOG.md` 2026-11-01T16:18:58Z: that batch renumbered itself to
+         F-14…F-20 precisely because it read my FIRST drafts as owning F-8/F-9/F-10. Those three
+         IDs are therefore **vacant, not assigned** — this section never took them. Recording that
+         explicitly, because "reserved by someone else" and "reserved by me and then vacated" look
+         identical in the file but produce two different registers.
+     (b) CORROBORATION OF THE RE-DATED RECORDS. The other session's
+         `scripts/maintenance/check-record-stamps.py` finds that rows for #135/#137 were stamped
+         with the local DATE and the UTC CLOCK (class A, +1 day) and other rows with the local
+         CLOCK and a `Z` suffix (class B, +2 h). Independently confirmed against PVE's own task
+         history, which is the authoritative clock because the hypervisor wrote these epochs
+         itself (`pvesh get /nodes/pve-prod-hv01/tasks --limit 400`, converted from epoch to UTC):
+           2026-10-31T21:53:43Z qmrestore OK      <- #131 vm/100 drill
+           2026-10-31T22:38:54Z qmrestore OK      <- #135 vm/101 drill (phase 1)
+           2026-10-31T22:41:33Z qmrestore "…no encryption key file found!"  <- the negative test
+           2026-10-31T22:42:28Z qmrestore OK      <- #135 key-restored re-proof
+           2026-10-31T23:02:46Z qmrestore OK      <- #137 leg, run 1
+           2026-10-31T23:04:32Z qmrestore OK      <- #137 leg, run 2
+           2026-11-01T00:00:01Z vzdump   OK       <- the Nov 1 nightly (§12a)
+         Filesystem artifacts agree: `/tmp/jol-e2fsck-full.txt` mtime `2026-11-01 01:04:49 +0200`
+         = 2026-10-31T23:04:49Z, and `/root/prechange-20261101-003854-vm101-negtest` = local
+         00:38:54 = 22:38:54Z. So the corrected stamps (#135 -> 2026-10-31T22:41:37Z, #137 ->
+         2026-10-31T23:04:52Z) are right, and the drill time-of-day values in §10/§11 were always
+         right — only their DATE rolled, because the session crossed local midnight.
+     (c) ONE TRAP WORTH PINNING, because it will bite the next reader of this file: the drill
+         logs are named in HOST LOCAL time (`offline-fsck-20261101-180639.log` is
+         2026-11-01T16:06:39Z, not 18:06Z), while the PBS group names in the same sentence
+         (`2026-11-01T00:00:01Z`) are UTC. Both appear inside one line of §12d. Read each by its
+         own source, not by the nearest neighbour.
+
+================================================================================
+§13 16:15Z-16:17Z - RECORD-STAMP INTEGRITY: 37 stamps in the ledger were not real
+      UTC instants. Corrected from artifacts, and the class is now gated
+      (found while verifying §11/§12 for issue #137)
+================================================================================
+
+WHAT WAS WRONG. `CHANGELOG.md` and the Change-History tables are the SOC 2 CC8.1 artifact: an
+auditor reconstructs the ORDER of production changes from the stamps alone. Measured against
+artifacts with independent clocks, 37 stamps across six files were not real UTC instants. Two
+classes, one cause.
+
+  CLASS A — local DATE + UTC CLOCK, off by exactly one day. Europe/Vilnius is UTC+2 after DST ended
+    2026-10-25, so a run at 22:41Z on Oct 31 is 00:41 local on Nov 1: the clock quoted was right,
+    the date rolled forward. Proved three independent ways, any one of which is sufficient:
+      * the record dated the drill `2026-11-01T22:41:37Z` -> CLOSED at `2026-10-31T22:56:04Z`
+        (`gh issue view 135 --json state,updatedAt`), i.e. the issue was closed 23 h BEFORE the date
+        the record gave for the very drill it certifies;
+      * commit `ae5c7e9` (the PR carrying that record) authored 2026-10-31T22:55:37Z — a record
+        cannot postdate its own commit;
+      * the drill's own artifacts: `.staging/drill-vm101-negtest.sh` mtime 22:42:27Z = the second
+        restore §10 cites at "22:42:27Z"; `pve:/tmp/jol-e2fsck-full.txt` mtime 23:04:49Z = §11's
+        "23:04:52Z" leg; `pve:/tmp/cfgbk-nostrip.sh` mtime 22:03:15Z = §9c's config-archive test.
+    The clock values were therefore correct all along; only the date was invented.
+
+  CLASS B — local CLOCK with a `Z` suffix, off by two hours. The F-2 row is stamped
+    `2026-10-31T23:05:00Z` while its own prechange directory is `/root/prechange-20261031-230501`
+    with mtime `2026-10-31T21:05:01Z`. The name is built with `$(date +%Y%m%d-%H%M%S)` on the host,
+    i.e. node-local, and the record then presented that local reading as UTC. Same mechanism for
+    §9c (`/tmp/cfgbk-nostrip.sh` local `2026-11-01 00:03:15 +0200` -> `2026-10-31T22:03:15Z`) and
+    for the F-3 helper (commit `af3992f` 22:25:32Z vs the row's "00:20:00Z", 5 minutes later).
+
+WHY IT MATTERS (not cosmetic). Read as written, the ledger claimed the vm/101 drill and the offline
+leg happened on Nov 1 — after the Nov 1 nightly — which would have made the backup groups §10/§11/§12
+used (`vm/101/2026-10-31T00:00:10Z`) impossible for those runs to be about, and would let an auditor
+conclude the sequence was reconstructed after the fact. ISO A.5.18/A.8.15 + A.8.25, SOC 2 CC8.1.
+The corrected order is: F-2 21:05Z -> F-3 archive 22:03:15Z -> helper 22:20Z -> #135 drill 22:41:37Z
+-> #134 guard commit 22:55:37Z -> §11 offline leg 23:04:52Z, all on 2026-10-31; then §12 at
+2026-11-01T15:15Z-16:11Z. That is the first time this thread's own narrative has been re-derived from
+artifact clocks rather than from the record.
+
+HOW IT HAPPENED, stated because the mechanism matters more than the fix: stamps were typed from
+whichever wall clock was on screen (the workstation shows local; `date -u` was available but was not
+the single source), and no gate looked at clock VALUES — `make lint-changelog` counts table columns,
+so a row with a phantom date passes it. That is the same "a control that cannot fail is not a
+control" rule already applied to watchdog gates 10/13, to the encryption key (§10), and to prose
+(§12b), now turned on the ledger's own timestamps.
+
+CORRECTION APPLIED (37 stamps, in place, in these files: CHANGELOG.md, AGENTS.md, runbook §5/§6/
+Change History, pve-prod-hv01.md, mcp-prod-lt01.md, this file):
+    2026-11-01T22:41:37Z -> 2026-10-31T22:41:37Z   (gh #135 close time + drill script mtime)
+    2026-11-01T22:41Z    x12 -> 2026-10-31T22:41Z  (same run)
+    2026-11-01 22:41Z    x2  -> 2026-10-31 22:41Z  (same run)
+    2026-11-01T22:55:00Z -> 2026-10-31T22:55:00Z   (commit ae5c7e9)
+    2026-11-01 22:55Z    -> 2026-10-31 22:55Z      (commit ae5c7e9)
+    2026-11-01T23:04:52Z -> 2026-10-31T23:04:52Z   (pve:/tmp/jol-e2fsck-full.txt mtime)
+    2026-11-01T23:04Z x3 / "2026-11-01 23:04Z" x3 -> 2026-10-31T23:04Z / 2026-10-31 23:04Z
+    2026-11-01T00:20:00Z -> 2026-10-31T22:20:00Z   (commit af3992f; class B)
+    2026-11-01T00:19Z    -> 2026-10-31T22:19Z      (refusal transcript; class B)
+    2026-11-01 00:20Z x2 -> 2026-10-31T22:20Z
+    2026-11-01T00:03:15Z x2 -> 2026-10-31T22:03:15Z (pve:/tmp/cfgbk-nostrip.sh; class B)
+    2026-11-01T00:03Z / 2026-11-01 00:03Z -> 2026-10-31T22:03Z
+    2026-10-31T23:05:00Z / 23:05Z x4 / "23:05Z" x2 -> 2026-10-31T21:05Z (prechange dir mtime; class B)
+  NOT touched, because they are genuine: every `pbs01:backup/vm/<id>/2026-10-31T00:00:10Z`-style
+  group name, the `2026-11-01T00:00:01Z`/`04Z`/`07Z` Nov 1 nightlies, and the GC `next-run` epoch
+  read-back `2026-11-07T02:30Z` — a real future instant, correctly labelled. References to local
+  time without a `Z` (the `02:00` nightly, the `04:00` monthly verify) are left local by design.
+
+GATE (the root-cause elimination). New `scripts/maintenance/check-record-stamps.py`:
+  rule 1  no `...Z` stamp may be later than the time the check runs (write-time, pre-commit);
+  rule 2  no `...Z` stamp may be later than the commit that last touched its line (`git blame
+          committer-time`) — the only rule that can see class B, which is in the past but ahead of
+          itself. This is what caught rows §13 had not yet enumerated.
+  Exemptions are deliberately narrow (scheduler fields: `next-run`, `gc-schedule`, `keep-*`,
+  `*-*-01`) and never apply to a stamp in a row's LEADING cell — an earlier draft matched the word
+  "schedule" anywhere on the line and thereby hid the F-3 row's own bad date. Measured, not assumed:
+  that is exactly how the first version failed its own self-test.
+  RED before: 33 findings (self-test 18/18 ok). GREEN after: 0 findings, 20 scheduler values exempt.
+  `--self-test` pins both classes, both exemptions, the Z-less-local case and the slack, so a
+  regression of the checker itself is loud. Wired as pre-commit hook `record-stamps`.
+
+GRANDFATHERED (tracked debt, not fixed here): `CHANGELOG.md` rows carrying `2026-09-19T15:00:00Z`
+and `2026-09-16T18:30:00Z` are also ahead of the commits that carry them — back-filled history from
+September, before this thread's conventions existed, and no artifact here re-derives them. They are
+listed in `STAMP_DEBT_BASELINE` in the checker (ratchet: may only shrink), the same device
+`check-changelog-table.py` uses for the 12 CC8.1 ticket placeholders.
+
+STILL OPEN, disclosed rather than smoothed over: the hook is LOCAL ONLY until CI runs it.
+`infra-validate.yml` and `Makefile` carry another session's uncommitted edits in this worktree, so
+adding the CI job here would have entangled two change sets — a check nobody invokes is not a
+control, and that gap is now a named follow-up instead of a silent one.
+
+ROLLBACK: documentation-only. `git checkout -- CHANGELOG.md AGENTS.md docs/` restores every row;
+the checker and the hook are additive files/sections. No host, VM, storage or schedule was touched
+by this section, and no secret was read or printed.
+
