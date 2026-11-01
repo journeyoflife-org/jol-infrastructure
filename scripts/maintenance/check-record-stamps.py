@@ -34,6 +34,15 @@ EXEMPTIONS — deliberately not findings
   * a stamp on a line that also carries a forward-looking marker (NEXT_RUN/`scheduled`/`owed`/
     `window`/`until`/`first run`/`verify`/`before`/`fires`/`due`/`plan`): those are real future
     instants, e.g. the PBS GC `next-run: 1794018600` = `2026-11-07T02:30Z`.
+  * a stamp the record is QUOTING rather than asserting. Two kinds exist in this ledger and neither
+    is a claim about when something happened: a withdrawn value shown being corrected (the F-12 row
+    has to print the broken stamp or the correction is unauditable), and a red-test fixture value
+    (the `2027-01-01T00:00:00Z` written into /tmp/badstamp.md to prove the checker can fail).
+    Marked explicitly, with the token `stamp-quoted` within CONTEXT chars of the stamp — because the
+    alternative (matching prose words like "recorded as") is exactly the weak exemption the narrow
+    FORWARD_MARKER list was written to refuse, and a token is greppable: `grep -c stamp-quoted`.
+    Cost, stated: a record can exempt a bad stamp by adding the token. That is why the count is
+    printed on every run, and why a ledger row's LEADING cell ignores all exemptions.
   * a time WITHOUT a trailing `Z` is not scanned at all. The fleet writes node-local clock
     references (the `02:00` nightly, the `04:00` monthly verify) and those are legitimately ahead.
 
@@ -59,6 +68,14 @@ STAMP = re.compile(r"(?P<dt>\d{4}-\d{2}-\d{2})[T ](?P<tm>\d{2}:\d{2}(?::\d{2})?)
 # cron entry), not a claim about when something happened. Matched on an 80-char window around the
 # stamp, never the whole row — these rows are megametres long and would otherwise exempt anything
 # (the #135 row legitimately mentions an owed November proof in passing).
+# ⚠ FIXED 2026-11-01 (finding F-27): this comment was TRUE OF THE INTENT AND FALSE OF THE CODE —
+# CONTEXT was defined here and read nowhere, while is_exempt() scanned the whole physical line (plus
+# its neighbours) for a marker. Two-sided failure, both measured: (1) in a ledger row, one legitimate
+# `keep-daily=7` mention exempted EVERY later Z-stamp in that same row, so a broken stamp could hide
+# behind it — the exact defect class this checker hunts; (2) in the wrapped-prose evidence .txt, a
+# marker that ended up on the PREVIOUS line lost its exemption for a real schedule. window_for() now
+# implements the documented window and lets it cross one physical line break, which is what wrapped
+# prose needs and nothing more.
 CONTEXT = 80
 # Deliberately NARROW: only scheduler fields count as a genuine future instant. A prose word like
 # "scheduled"/"owed" must not exempt a bad stamp — an earlier draft matched "schedule" and thereby
@@ -68,6 +85,9 @@ FORWARD_MARKER = re.compile(
     r"keep-daily|keep-weekly|keep-monthly|prune-backups", re.I)
 SLACK = timedelta(minutes=5)          # seconds old is fine; hours ahead is not
 UNCOMMITTED = "0000000000000000000000000000000000000000"
+# See the EXEMPTIONS section: a quoted-not-asserted stamp must say so with this token, in the same
+# CONTEXT window as the stamp. Deliberately not a prose pattern.
+QUOTED_TOKEN = "stamp-quoted"
 
 DEFAULT_FILES = [
     "CHANGELOG.md",
@@ -96,6 +116,29 @@ def parse(match):
         tzinfo=timezone.utc)
 
 
+def window_for(line, start, end, lines=None, no=None):
+    """The ±CONTEXT-char window around a stamp that F-27 says the exemption is judged on.
+
+    Without `lines` the window is cut from the single line — which is what the ledger (one row per
+    line) needs, and what the self-test fixtures assert. With `lines`/`no` the window may cross into
+    the immediately adjacent physical line, because the evidence .txt wraps prose mid-sentence and a
+    `next-run:` field legitimately ends up one line above the stamp it explains (class (2) of F-27).
+    Crossing to the ADJACENT line is not the same as reading the whole row: the window is still
+    bounded by CONTEXT on each side.
+
+    Returns (window, index-of-the-stamp-inside-that-window).
+    """
+    if lines is None or no is None:
+        base, off = line, 0
+    else:
+        prev = lines[no - 2] if no >= 2 else ""
+        nxt = lines[no] if no < len(lines) else ""
+        base, off = prev + lines[no - 1] + nxt, len(prev)
+    i = off + start
+    left = max(0, i - CONTEXT)
+    return base[left:i + (end - start) + CONTEXT], i - left
+
+
 def commit_times(path):
     """line number -> committer datetime of the commit that last touched that line."""
     try:
@@ -114,31 +157,42 @@ def commit_times(path):
     return times
 
 
-def is_exempt(line, match, neighbours=""):
-    """Two ways a `...Z` string on a page is NOT a claim that something happened.
+def exemption(line, match, lines=None, no=None):
+    """None when the `...Z` string is an ASSERTION; otherwise the reason it is not one.
 
-    1. scheduler field (`next-run`, `gc-schedule`, `keep-*`, `*-*-01`) — a genuinely future instant.
-       Looked for in the line plus its physical neighbours, because evidence files wrap prose across
-       lines while a ledger row is one unbroken line. Never applied to a row's LEADING cell.
-    2. a SUPERSEDED value shown being corrected: `<old> -> <new>` where the new stamp is earlier.
-       Without this rule a correction record fails its own gate — measured: §13 quotes the 37 broken
-       stamps precisely so the fix is auditable, and the first draft flagged 10 of its own lines.
-       Stated weakening: a row could hide a bad stamp behind such an arrow, which is why the leading
-       cell of a ledger row is still always checked.
+    1. `quoted`   — the record names the token `stamp-quoted` beside the stamp (a withdrawn value
+       shown being corrected, or a red-test fixture value). Without it a correction record fails its
+       own gate: measured, §13 quotes the 37 broken stamps precisely so the fix is auditable, and the
+       first draft flagged 10 of its own lines. Cost stated in the docstring: the token is an
+       honour-system exemption, which is why every run prints the count and why no exemption at all
+       applies inside a ledger row's leading cell.
+    2. `scheduler` — a FORWARD_MARKER (see window_for) within CONTEXT chars: a genuinely future
+       instant (`next-run`, `gc-schedule`, `keep-*`, `*-*-01`).
+    3. `superseded` — `<old> -> <new>` where the new stamp is EARLIER. A bare arrow is not enough.
+
+    The leading cell of a ledger row (`| <stamp> |`) is always judged on its own value: that cell is
+    the instant the row asserts.
     """
     if line.startswith("| ") and match.start() < 40:
-        return False
-    if FORWARD_MARKER.search(neighbours or line):
-        return True
-    after = line[match.end():]
+        return None
+    window, rel = window_for(line, match.start(), match.end(), lines, no)
+    if QUOTED_TOKEN in window:
+        return "quoted"
+    if FORWARD_MARKER.search(window):
+        return "scheduler"
+    after = window[rel + (match.end() - match.start()):]
     if "->" not in after and "→" not in after:
-        return False
+        return None
     arrow = max(after.find("->"), after.find("→"))
     old = parse(match)
     for other in STAMP.finditer(after):
         if other.start() > arrow and parse(other) < old:
-            return True
-    return False
+            return "superseded"
+    return None
+
+
+def is_exempt(line, match, lines=None, no=None):
+    return exemption(line, match, lines, no) is not None
 
 
 def scan(path, now, use_git):
@@ -149,10 +203,9 @@ def scan(path, now, use_git):
     times = commit_times(path) if use_git and os.path.isdir(".git") else {}
     findings, exempt = [], []
     for no, text in enumerate(lines, 1):
-        neighbours = "".join(lines[max(0, no - 2):no + 1])
         for match in STAMP.finditer(text):
             stamp = parse(match)
-            if is_exempt(text, match, neighbours):
+            if is_exempt(text, match, lines, no):
                 exempt.append((no, match.group(0)))
                 continue
             if stamp > now + SLACK:
@@ -224,6 +277,39 @@ def self_test():
     if STAMP.search("2026-11-01 02:00 nightly"):
         print("FAIL sanity: the checker matched a Z-less local reference")
         failed += 1
+
+    # ---- F-27 window fixtures (added 2026-11-01) ------------------------------------------------
+    # The exemption is judged on ±CONTEXT chars around the stamp, never on the whole row. Without
+    # these cases the checker can be green while being blind: one legitimate `keep-daily` mention in
+    # a megametre ledger row used to exempt EVERY later Z-stamp in that same row.
+    def exempt_for(lines, lineno, stamp_text):
+        for match in STAMP.finditer(lines[lineno - 1]):
+            if match.group(0) == stamp_text:
+                return str(is_exempt(lines[lineno - 1], match, lines, lineno))
+        return "NO-SUCH-STAMP"
+
+    far = ("| 2026-10-31T20:00:00Z | @J | job keeps keep-daily=7, schedule sat 04:30 "
+           + "x" * 120 + " and the run finished 2026-11-01T22:41:37Z | prod | #137 |")
+    near = "read back `next-run: 1794018600` (= 2026-11-07T02:30Z = 04:30 EET), upid null"
+    wrapped = ["read back `next-run: 1794018600` (= ", "2026-11-07T02:30Z = 04:30 EET), upid null"]
+    bare = "the run finished 2026-11-01T22:41:37Z, nothing scheduler-shaped nearby"
+    cases_27 = [
+        ("F-27: a scheduler field 100+ chars away does NOT exempt the later stamp",
+         exempt_for([far], 1, "2026-11-01T22:41:37Z"), "False"),
+        ("F-27: a ledger row's LEADING stamp is always judged on its own value",
+         exempt_for([far], 1, "2026-10-31T20:00:00Z"), "False"),
+        ("F-27: a scheduler field INSIDE the window exempts a real future read-back",
+         exempt_for([near], 1, "2026-11-07T02:30Z"), "True"),
+        ("F-27: wrapped prose — the field on the PREVIOUS line still exempts",
+         exempt_for(wrapped, 2, "2026-11-07T02:30Z"), "True"),
+        ("F-27: no scheduler field anywhere -> no exemption",
+         exempt_for([bare], 1, "2026-11-01T22:41:37Z"), "False"),
+    ]
+    for label, got, want in cases_27:
+        ok = want == got
+        print("%-4s %s (exempt=%s, want %s)" % ("ok" if ok else "FAIL", label, got, want))
+        if not ok:
+            failed += 1
     return 1 if failed else 0
 
 

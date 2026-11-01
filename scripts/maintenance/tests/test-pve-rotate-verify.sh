@@ -25,7 +25,11 @@
 # =============================================================================
 set -uo pipefail
 
-SRC="${1:-/opt/jol/repos/jol-infrastructure/scripts/maintenance/pve-rotate-cipassword.sh}"
+# Path resolved from THIS file, not a hard-coded workstation path: `make test-gates` runs the
+# fixtures in CI, where /opt/jol/repos/... does not exist (measured on PR #141: the job died
+# with `FATAL: /opt/jol/repos/jol-infrastructure/scripts/maintenance/hv01-config-backup.sh not found`).
+MAINT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="${1:-$MAINT_DIR/pve-rotate-cipassword.sh}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 

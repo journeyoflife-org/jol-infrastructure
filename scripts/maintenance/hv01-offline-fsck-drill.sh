@@ -178,6 +178,35 @@ self_test() {
     sev_bad=$(printf 'Inode 5368 has zero dtime\n/fsck: UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY\n')
     check "no-severe fixture -> 0 hits"  "$(printf '%s' "$sev_ok"  | grep -cE "$SEVERE_MARKERS" || true)" "0"
     check "severe fixture   -> 1 hit"    "$(printf '%s' "$sev_bad" | grep -cE "$SEVERE_MARKERS" || true)" "1"
+    # ---- severity_of fixtures (F-29/F-30, added 2026-11-01) ------------------------------------
+    # These are the fixtures that were MISSING when the bug shipped: the decode-string fixtures
+    # above all passed while the aggregation still returned EXIT_CLEAN for rc=5. Every bitmask
+    # combination that is not 0/4/8 must be refused, never quietly averaged away.
+    lvl() { severity_of "$1" "$2" "${3:-0}"; }
+    check "e2fs rc=0 sev=0 -> clean"        "$(lvl 0 0 0)" "$EXIT_CLEAN"
+    check "e2fs rc=4 sev=0 -> residual"     "$(lvl 0 4 0)" "$EXIT_RESIDUAL"
+    check "e2fs rc=4 sev=1 -> severe"       "$(lvl 0 4 1)" "$EXIT_SEVERE"
+    check "e2fs rc=5 (4|1) -> severe"       "$(lvl 0 5 0)" "$EXIT_SEVERE"
+    check "e2fs rc=6 (4|2) -> severe"       "$(lvl 0 6 0)" "$EXIT_SEVERE"
+    check "e2fs rc=7 (4|2|1)-> severe"      "$(lvl 0 7 0)" "$EXIT_SEVERE"
+    check "e2fs rc=1 corrected -> severe"   "$(lvl 0 1 0)" "$EXIT_SEVERE"
+    check "e2fs rc=2 reboot -> severe"      "$(lvl 0 2 0)" "$EXIT_SEVERE"
+    check "e2fs rc=3 -> severe"             "$(lvl 0 3 0)" "$EXIT_SEVERE"
+    check "e2fs rc=8 did-not-run -> severe" "$(lvl 0 8 0)" "$EXIT_SEVERE"
+    check "e2fs rc=12 (4|8) -> severe"      "$(lvl 0 12 0)" "$EXIT_SEVERE"
+    check "e2fs rc=16 -> severe"            "$(lvl 0 16 0)" "$EXIT_SEVERE"
+    check "e2fs rc=128 -> severe"           "$(lvl 0 128 0)" "$EXIT_SEVERE"
+    check "e2fs rc=unparseable -> severe"   "$(lvl 0 'n/a' 0)" "$EXIT_SEVERE"
+    check "vfat rc=0 -> clean"              "$(lvl 1 0 0)" "$EXIT_CLEAN"
+    check "vfat rc=1 -> residual (not clean)" "$(lvl 1 1 0)" "$EXIT_RESIDUAL"
+    check "vfat rc=2 -> severe"             "$(lvl 1 2 0)" "$EXIT_SEVERE"
+    check "vfat rc=4 -> severe"             "$(lvl 1 4 0)" "$EXIT_SEVERE"
+    # NEGATIVE CONTROL: a zero-partition scan must not be able to report clean. The guard in step 4
+    # is `[[ $checked -eq 0 ]] -> die`, so the fixture replays the real loop construct against an
+    # EMPTY device list and asserts the counter it reads stays 0 (guard fires).
+    local z=0
+    while read -r _dev _fs; do z=$((z + 1)); done < <(printf '')
+    check "empty partition list -> checked stays 0, guard fires" "$z" "0"
     # empty output must never be read as a pass (the 2026-10-22 failure mode)
     check "empty probe -> non-zero abort path" "$(printf '' | grep -c 'vm-199-disk-0' || true)" "0"
     printf 'self-test: %d passed, %d failed\n' "$pass" "$fails"
@@ -330,6 +359,8 @@ fi
 #    $LOG_FILE (failure (c): `tail -6` threw away the explanation of rc=4).
 # ---------------------------------------------------------------------------
 worst=$EXIT_CLEAN
+checked=0      # partitions a checker actually RAN on (F-30: 0 must never read as clean)
+skipped=0      # partitions with no applicable offline checker — a named gap, not a pass
 while read -r pdev fstype; do
     [[ -b "$pdev" ]] || continue
     case "$fstype" in
@@ -340,6 +371,7 @@ while read -r pdev fstype; do
     esac
     if [[ -z "$TOOL" ]]; then
         log "SKIP : $pdev ($fstype) — no offline checker applicable on this host; recorded as a gap, not as a pass"
+        skipped=$((skipped + 1))
         continue
     fi
     log "--- check $pdev ($fstype) with $TOOL (read-only by design, nothing is repaired) ---"
@@ -375,6 +407,18 @@ while read -r pdev fstype; do
 done < <(find /dev -maxdepth 1 -name "$(basename "$LOOP")p*" -printf '%p\n' 2>/dev/null | sort \
          | while read -r d; do printf '%s %s\n' "$d" "$(blkid -s TYPE -o value "$d" 2>/dev/null || echo unknown)"; done)
 
+# F-30 (2026-11-01): if nothing was inspected the run must NOT report clean. Both harness
+# predecessors of this script failed this way — 2026-10-22 printed nothing for an invalid LV spec
+# and 2026-11-01 leaked a loop mapping — and in both cases the absence of an error line was read as
+# a pass. An empty scan is a precondition failure. The teardown trap stays ARMED on purpose: leaving
+# a scratch VM + 50 GB thin LV behind for "forensics" is the exact 2026-11-01 run-1 leak, and the
+# full child output is already in $LOG_FILE, so nothing needed for inspection is lost by cleaning up.
+if [[ $checked -eq 0 ]]; then
+    warn "0 partitions were CHECKED ($skipped skipped with a named reason) — NOT treating empty as pass"
+    die "empty scan on $LOOP: no partition exposed a filesystem this host can check offline" $EXIT_PRECOND
+fi
+log "coverage: $checked partition(s) checked, $skipped skipped with a named reason"
+
 # ---------------------------------------------------------------------------
 # 5. Teardown VERIFIED BY POST-STATE, not by the absence of an error message.
 # ---------------------------------------------------------------------------
@@ -404,4 +448,4 @@ qm status "$VMID" 2>/dev/null | grep -q '^status: running' \
 
 log "=== $SCRIPT_NAME finished: exit $worst ($( [[ $worst -eq $EXIT_CLEAN ]] && echo clean || echo residual-or-severe )) — full output: $LOG_FILE ==="
 log "record the finding as measured. An rc=4 with only orphan-list/zero-dtime/negative-bitmap work is a quiesced copy's pending bookkeeping, and it stays an accepted NAMED residual — it is never retitled 'clean'."
-exit $worst
+exit "${worst}"

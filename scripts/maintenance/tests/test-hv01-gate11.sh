@@ -25,7 +25,10 @@
 # =============================================================================
 set -uo pipefail
 
-SRC="${1:-/opt/jol/repos/jol-infrastructure/scripts/maintenance/hv01-health-check.sh}"
+# Path resolved from THIS file, not a hard-coded workstation path (`make test-gates` runs this in CI,
+# where /opt/jol/repos/... does not exist).
+MAINT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="${1:-$MAINT_DIR/hv01-health-check.sh}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 

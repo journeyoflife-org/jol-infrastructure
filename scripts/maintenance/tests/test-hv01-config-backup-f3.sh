@@ -21,7 +21,11 @@
 # =============================================================================
 set -uo pipefail
 
-SUT="${1:-/opt/jol/repos/jol-infrastructure/scripts/maintenance/hv01-config-backup.sh}"
+# The subject is resolved relative to THIS file, never from a hard-coded workstation path: the
+# fixture is run by `make test-gates` in CI, where /opt/jol/repos/... does not exist (measured: the
+# first CI run of this suite died with `FATAL: /opt/jol/repos/... not found`).
+MAINT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SUT="${1:-$MAINT_DIR/hv01-config-backup.sh}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 [[ -f "$SUT" ]] || { echo "FATAL: $SUT not found" >&2; exit 2; }
