@@ -1,4 +1,7 @@
 # Dependabot — automated dependency updates
+# Terraform ecosystems were removed 2026-11-04 by ADR-009 Phase 1: the AWS tree under
+# terraform/ is frozen and never applied, so bumps against it cannot validate
+# (see docs/adr/ADR-009-descope-frozen-aws-tree.md).
 version: 2
 
 updates:
@@ -12,48 +15,3 @@ updates:
       - "ci-cd"
     reviewers:
       - "journeyoflife-org/devops"
-
-  - package-ecosystem: "terraform"
-    directory: "/terraform/bootstrap"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "terraform"
-    ignore:
-      - dependency-name: "hashicorp/aws"
-        versions: ["6.x"]
-
-  - package-ecosystem: "terraform"
-    directory: "/terraform/environments/dev"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "terraform"
-    ignore:
-      - dependency-name: "hashicorp/aws"
-        versions: ["6.x"]
-
-  - package-ecosystem: "terraform"
-    directory: "/terraform/environments/staging"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "terraform"
-    ignore:
-      - dependency-name: "hashicorp/aws"
-        versions: ["6.x"]
-
-  - package-ecosystem: "terraform"
-    directory: "/terraform/environments/prod"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "terraform"
-      - "production"
-    ignore:
-      - dependency-name: "hashicorp/aws"
-        versions: ["6.x"]

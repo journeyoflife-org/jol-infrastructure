@@ -37,4 +37,6 @@ git config core.eol lf
 
 echo ""
 echo "✅ Repository setup complete!"
-echo "   Next step: ./scripts/bootstrap/02-bootstrap-state.sh"
+echo "   Next step: apply infrastructure on-prem via Ansible (see docs/runbooks/)."
+echo "   NOTE: the AWS Terraform bootstrap scripts were removed by ADR-009 Phase 1"
+echo "         — terraform/ is frozen and must never be applied against AWS."

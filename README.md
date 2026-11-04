@@ -34,16 +34,12 @@ Each environment uses a 3-tier VPC (public/private/database) with full network s
 
 # 2. Verify required tools
 make check-tools
-
-# 3. Bootstrap Terraform state (ONE-TIME)
-./scripts/bootstrap/02-bootstrap-state.sh
-
-# 4. Plan infrastructure for dev
-make plan-dev
-
-# 5. Bootstrap EKS cluster
-./scripts/bootstrap/03-bootstrap-cluster.sh dev
 ```
+
+Infrastructure is applied **on-prem with Ansible** (`ansible/`, `inventory/`) — see
+`docs/runbooks/`. The AWS Terraform tree under `terraform/` is frozen and never applied
+(ADR-009); its two bootstrap apply scripts were removed in Phase 1, and no `terraform apply`
+should be run against it.
 
 ## Repository Structure
 
