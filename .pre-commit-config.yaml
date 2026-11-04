@@ -6,7 +6,7 @@
 repos:
   # --- Secret Detection ---
   - repo: https://github.com/trufflesecurity/trufflehog
-    rev: v3.82.0
+    rev: v3.99.8
     hooks:
       - id: trufflehog
         name: TruffleHog Secret Scan
