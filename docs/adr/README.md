@@ -10,3 +10,4 @@
 | [ADR-006](ADR-006-monitoring-stack.md) | Monitoring Stack (Prometheus + Grafana + CloudWatch) | Accepted | 2025-03-01 |
 | [ADR-007](ADR-007-descope-jol-core.md) | De-scope `jol-core` from Tier 0 | Accepted | 2026-09-19 |
 | [ADR-008](ADR-008-pbs01-admin-ssh.md) | Admin SSH Reachability to the Backup Server (pbs01) | Proposed | 2026-10-22 |
+| [ADR-009](ADR-009-descope-frozen-aws-tree.md) | De-scope the Frozen AWS Terraform Tree | Proposed (owner decision) | 2026-11-04 |
