@@ -69,6 +69,24 @@ run() {
     printf 'APPLY: %s\n' "$*"; "$@"
 }
 
+# -----------------------------------------------------------------------------
+# dirty_verdict — is the source file I am about to install the COMMITTED one?
+#
+# The verify pass below compares the installed copy against the REPO WORKTREE, which
+# proves the copy landed intact but says nothing about whether that worktree content
+# was ever committed. On a workstation where a second agent session is editing files,
+# "host matches repo" can therefore mean "host matches an uncommitted draft" — the F-4
+# drift class this installer exists to catch, re-appearing one level up.
+#
+#   $1 head_hash   $2 worktree_hash   (either may be empty when not in a git checkout)
+# -----------------------------------------------------------------------------
+dirty_verdict() {
+    local head="${1:-}" wt="${2:-}"
+    if [[ -z "$head" || -z "$wt" ]]; then printf 'NOT_IN_GIT\n'; return 0; fi
+    if [[ "$head" == "$wt" ]]; then printf 'CLEAN\n'; return 0; fi
+    printf 'DIRTY\n'
+}
+
 # --- guards ------------------------------------------------------------------
 HOST_ID="$(hostname -s 2>/dev/null || echo unknown)"
 for h in pve-prod-hv01 pbs01 llm-prod-lt01 rag-prod-lt01 mcp-prod-lt01 her-prod-lt01; do
@@ -104,6 +122,43 @@ for pair in "${TARGETS[@]}"; do
         FAILED=1
         continue
     fi
+    # Install what was reviewed and committed, not whatever the worktree happens to hold.
+    # Two agent sessions share this checkout, so this is not hypothetical.
+    # NOTE on path spelling: HEAD:<path> is resolved from the REPO ROOT, while $src is
+    # relative to $REPO_DIR (scripts/maintenance). A bare filename here silently resolved
+    # to nothing on the first draft, which degraded every verdict to NOT_IN_GIT — a guard
+    # that reports "cannot check" for every file is indistinguishable from a guard that
+    # passes, so the prefix is computed and the CLEAN result is asserted by a live run.
+    TOP="$(git -C "$REPO_DIR" rev-parse --show-toplevel 2>/dev/null || echo '')"
+    REL=""
+    if [[ -n "$TOP" && "$REPO_DIR" == "$TOP"/* ]]; then REL="${REPO_DIR#"$TOP"/}/"; fi
+    # -q --verify, NOT a bare rev-parse: on a path that does not exist in HEAD, plain
+    # `git rev-parse HEAD:<path>` prints the LITERAL argument to stdout while exiting
+    # non-zero, and `$( … || echo '' )` cannot take that string back — it was already
+    # captured. Measured here: HEADHASH became the text "HEAD:fix-jol-backup-mount.sh",
+    # so every target compared unequal to a real hash and the installer refused all six
+    # with a nonsense head= value. -q --verify prints nothing on failure, which is the
+    # empty string dirty_verdict actually expects.
+    HEADHASH="$(git -C "$REPO_DIR" rev-parse -q --verify "HEAD:${REL}${pair%%|*}" 2>/dev/null || true)"
+    WTHASH="$(git hash-object "$src" 2>/dev/null || true)"
+    VERDICT="$(dirty_verdict "$HEADHASH" "$WTHASH")"
+    case "$VERDICT" in
+        CLEAN) : ;;
+        NOT_IN_GIT)
+            say "NOTE: $src cannot be compared with HEAD (not a git checkout) — parity will be checked against the worktree only"
+            ;;
+        DIRTY)
+            if [[ "${ALLOW_DIRTY:-0}" == "1" ]]; then
+                say "WARN: $src differs from HEAD:${REL}${pair%%|*} — installing UNCOMMITTED worktree content (ALLOW_DIRTY=1)"
+            else
+                say "FAIL: $src differs from HEAD — refusing to install uncommitted content"
+                say "      head=$HEADHASH  worktree=$WTHASH"
+                say "      commit it, or set ALLOW_DIRTY=1 if you are installing a draft deliberately"
+                FAILED=1
+                continue
+            fi
+            ;;
+    esac
     if command -v shellcheck >/dev/null 2>&1; then
         if ! shellcheck -x -S warning "$src" >/dev/null 2>&1; then
             say "FAIL: shellcheck reported problems in $src — refusing to install"
