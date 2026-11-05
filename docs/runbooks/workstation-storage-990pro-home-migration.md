@@ -570,12 +570,16 @@ expensive.
 |---|---|---|---|
 | 1 | Recovery keyslot **verified to open the volume** and attested into custody | **OPEN** — no attestation exists; `/var/lib/jol-workstation` is `drwx------ root:root`, so an unprivileged run can only report UNVERIFIED | owner: place the passphrase in Vaultwarden, then `sudo jol-record-custody.sh` |
 | 2 | A **current** Phase 0 backup proof (≤ 6 h) | **STALE BY DESIGN** — the 13:10Z snapshot ages out; re-run before the window | owner: `sudo jol-backup-home.sh` |
-| 3 | The scripts are actually installed on the host | **FAILING** — `jol-migrate-home.sh` and `jol-record-custody.sh` are absent from `/usr/local/bin`, and the three that exist are still mode `750 root:root`, predating the per-target-mode change. Their content is therefore **UNVERIFIABLE** by uid 1000 — not "drifted", unreadable | owner: one `DRY_RUN=0 sudo jol-install-scripts.sh` (or the repo copy) re-run |
+| 3 | The scripts are actually installed on the host | **FAILING** — probed against the names derived from the installer's own `TARGETS` array: three of six are absent from `/usr/local/bin` (`jol-migrate-home.sh`, `jol-record-custody.sh`, `jol-write-bench.sh`), and the three that exist (`jol-fix-backup-mount.sh`, `jol-backup-home.sh`, `jol-provision-home-disk.sh`) are all mode `750 root:root` and so unreadable by uid 1000 — two of those three are manifest-`755` but deployed-`750`, i.e. the per-target-mode change is not on the host either. Their content is therefore **UNVERIFIABLE** by uid 1000 — not "drifted", unreadable | owner: one `DRY_RUN=0 sudo install-workstation-scripts.sh` (or the repo copy) re-run |
 | 4 | §3.6 sustained-write measurement recorded | **OPEN** — tooling now exists (`jol-write-bench.sh`), never executed | owner, as root |
 | 5 | Boot posture is not a trap | **PASS** — crypttab options `luks`, and both `Automatic-Reboot` and `Automatic-Reboot-Time` are commented out in `50unattended-upgrades`, so nothing reboots the machine into a prompt nobody is there to answer. The gate fails if the pair ever becomes real | automatic |
-| 6 | `tune2fs -m 1` on `/home` | **OPEN, and not urgent** — measured free space moved 8512 → 8568 → 8563 MiB across the recorded samples, i.e. no observable fill. Do this for headroom, not for time | owner, as root |
+| 6 | `tune2fs -m 1` on `/home` | **OPEN, and not urgent** — the documented rate recipe refuses to extrapolate on the artifact as it stands (exit 1: "only 0.773 h of history"), which is the designed refusal, so **no fill rate is derivable yet**. Raw: 9 samples, avail 8512 → 8568 → 8551 MiB, net +39 MiB first-to-last and −17 MiB peak-to-last — fluctuation, no sustained fill. Do this for headroom, not for time | owner, as root |
 
 Item 3 blocks items 1, 2 and 4 in practice: the operator cannot run what is not installed.
+Item 3 is also the only one that closes itself: `install-workstation-scripts.sh` needs no
+prior installation to run, because it is read from this repo — one `sudo DRY_RUN=0` against
+the repo copy puts all six in place at their manifest modes, and its verify pass then
+compares each installed sha256 against the repo and fails on a mode mismatch.
 
 ### 4.5 Gate
 `df -h /home` shows the new volume; `ls -Z`/`stat` permissions match; the IDE starts; the agent starts;
