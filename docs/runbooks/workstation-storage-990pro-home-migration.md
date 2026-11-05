@@ -430,6 +430,22 @@ very cache transition being looked for — records every interval to
 `~/.local/share/jol-fleet-health/write-bench-<utc>.tsv`, removes its test file on any
 exit path, and **verifies that removal by post-state** rather than by having run `rm`.
 
+> **The evidence path is resolved from the invoking operator, not from `$HOME`.** The
+> mutating path requires uid 0, so under `sudo` `$HOME` is `/root`, and the first version
+> of this script wrote the samples under a `700 /root` while `--report` — deliberately
+> reachable without root — looked in the operator's own home and answered "no benchmark has
+> been run yet" for a measurement that had. It now resolves the home of `SUDO_USER` via
+> `getent`, hands the file over with `chown`, and prints the resolved path plus the invoking
+> uid in the plan so the operator can see where the evidence will land before writing 32 GiB.
+> In a genuine root shell (`rescue.target`, which is where this is meant to run) there is no
+> `SUDO_USER` and `/root` is correct.
+
+Read the last measurement without root:
+
+```bash
+/usr/local/bin/jol-write-bench.sh --report
+```
+
 Refusals, each its own token and each fixture-tested: the target is not mounted, the
 target resolves to `/` (the exact `/mnt/jol-backup` failure from this thread), the
 backing source is not `/dev/mapper/jolhome_crypt`, or the target already holds
@@ -445,8 +461,13 @@ payload **rounded up**, because a truncated window is a window that runs out.
 > collapse detector scanned for any sample at or below half the eventual maximum, which
 > reported a cache cliff at 20 s on synthetic data where the drive was simply speeding
 > up from 100 to 1000 MiB/s. A collapse is now only searched for after the last peak
-> sample. Eleven mutations of these two functions are recorded red in
-> `scripts/maintenance/tests/test-write-bench.sh` (27 fixtures), including the
+> sample. Mutation counts, stated per suite because an earlier draft of this line merged
+> two different harnesses: **12 mutants against this script's three pure functions**
+> (`plateau_summary`, `target_verdict`, `operator_home`) — 7 from the t8/t9 harness plus 5
+> targeting `operator_home`'s individual decisions — and **4 separate mutants** against
+> `boot_posture_verdict` in the migration suite. All 16 are recorded red; the `operator_home`
+> set is in
+> `scripts/maintenance/tests/test-write-bench.sh` (36 fixtures), including the
 > whole-run-mean and truncate-instead-of-ceil variants.
 
 **Expected:** a high rate for the first chunk, then a visible plateau. The plateau is
@@ -570,7 +591,7 @@ expensive.
 |---|---|---|---|
 | 1 | Recovery keyslot **verified to open the volume** and attested into custody | **OPEN** — no attestation exists; `/var/lib/jol-workstation` is `drwx------ root:root`, so an unprivileged run can only report UNVERIFIED | owner: place the passphrase in Vaultwarden, then `sudo jol-record-custody.sh` |
 | 2 | A **current** Phase 0 backup proof (≤ 6 h) | **STALE BY DESIGN** — the 13:10Z snapshot ages out; re-run before the window | owner: `sudo jol-backup-home.sh` |
-| 3 | The scripts are actually installed on the host | **FAILING** — probed against the names derived from the installer's own `TARGETS` array: three of six are absent from `/usr/local/bin` (`jol-migrate-home.sh`, `jol-record-custody.sh`, `jol-write-bench.sh`), and the three that exist (`jol-fix-backup-mount.sh`, `jol-backup-home.sh`, `jol-provision-home-disk.sh`) are all mode `750 root:root` and so unreadable by uid 1000 — two of those three are manifest-`755` but deployed-`750`, i.e. the per-target-mode change is not on the host either. Their content is therefore **UNVERIFIABLE** by uid 1000 — not "drifted", unreadable | owner: one `DRY_RUN=0 sudo install-workstation-scripts.sh` (or the repo copy) re-run |
+| 3 | The scripts are actually installed on the host | **FAILING** — probed against the names derived from the installer's own `TARGETS` array: three of six are absent from `/usr/local/bin` (`jol-migrate-home.sh`, `jol-record-custody.sh`, `jol-write-bench.sh`), and the three that exist (`jol-fix-backup-mount.sh`, `jol-backup-home.sh`, `jol-provision-home-disk.sh`) are all mode `750 root:root` and so unreadable by uid 1000 — and after the reclassification landed in this same thread, **all three** of them are manifest-`755` but deployed-`750`, i.e. the per-target-mode change is not on the host at all. Their content is therefore **UNVERIFIABLE** by uid 1000 — not "drifted", unreadable | owner: one `DRY_RUN=0 sudo install-workstation-scripts.sh` (or the repo copy) re-run |
 | 4 | §3.6 sustained-write measurement recorded | **OPEN** — tooling now exists (`jol-write-bench.sh`), never executed | owner, as root |
 | 5 | Boot posture is not a trap | **PASS** — crypttab options `luks`, and both `Automatic-Reboot` and `Automatic-Reboot-Time` are commented out in `50unattended-upgrades`, so nothing reboots the machine into a prompt nobody is there to answer. The gate fails if the pair ever becomes real | automatic |
 | 6 | `tune2fs -m 1` on `/home` | **OPEN, and not urgent** — the documented rate recipe refuses to extrapolate on the artifact as it stands (exit 1: "only 0.773 h of history"), which is the designed refusal, so **no fill rate is derivable yet**. Raw: 9 samples, avail 8512 → 8568 → 8551 MiB, net +39 MiB first-to-last and −17 MiB peak-to-last — fluctuation, no sustained fill. Do this for headroom, not for time | owner, as root |
@@ -689,8 +710,8 @@ Named so nobody mistakes a storage plan for a resolved risk register:
    └ daily recurrence                 DONE — jol-home-backup.timer 03:40, gate 6 monitors it
 3. Phase 1  provision-jolhome-disk   DONE 2026-11-05T14:29Z — LUKS2 + ext4 + crypttab + fstab,
                                         boot chain verified
-   └ §3.6 sustained-write test       TOOLING DONE 2026-11-05 (jol-write-bench.sh, 27 fixtures,
-                                        11 mutants red); EXECUTION still owner action
+   └ §3.6 sustained-write test       TOOLING DONE 2026-11-05 (jol-write-bench.sh, 36 fixtures,
+                                        12 mutants red); EXECUTION still owner action
    └ custody gate (t6)               DONE — record-jolhome-custody.sh + a 12-branch
                                         custody_verdict; Phase 2 refuses without verify=PASS
 4. Phase 2  move /home               PENDING — blocked on §4.0 items 1–4; jol-migrate-home.sh

@@ -28,7 +28,42 @@ STAGING="${STAGING:-/mnt/jolhome-staging}"
 MAPPER="${MAPPER:-jolhome_crypt}"
 SIZE_GIB="${SIZE_GIB:-32}"          # per §3.6: 32 GiB defeats most dynamic SLC caches
 PAYLOAD_GIB="${PAYLOAD_GIB:-76}"    # the real Phase 2 rsync volume, for the projection
-WIN_DIR="${WIN_DIR:-$HOME/.local/share/jol-fleet-health}"
+
+# -----------------------------------------------------------------------------
+# operator_home — WHICH home the evidence belongs to, as a PURE FUNCTION.
+#
+# The mutating path requires uid 0, so this script normally runs under sudo, where
+# $HOME is /root. Resolving the evidence directory from $HOME therefore wrote the
+# samples into /root/.local/share/jol-fleet-health (under a 700 /root, unreadable by
+# the operator) while --report — which is deliberately reachable WITHOUT root — looked
+# in the operator's own home and found nothing. A completed benchmark would then have
+# answered "no benchmark has been run yet": the two paths never meet. That is the
+# silent-failure class this thread keeps documenting, shipped in my own first draft.
+#
+#   $1 uid           $2 $HOME as seen by this process
+#   $3 home of SUDO_USER, already resolved (empty when not applicable)
+#
+# When there is no SUDO_USER at all — a genuine root shell, e.g. the rescue.target
+# window §3.6 is meant to run in — /root IS the operator's home and is the right answer.
+# -----------------------------------------------------------------------------
+operator_home() {
+    local uid="${1:-1}" home="${2:-/none}" sudo_home="${3:-}"
+    # Three separate decisions, on three separate lines, so each is independently testable:
+    # a mutant that deletes two of them at once can make a fixture about the third unobservable
+    # (that is exactly what a bundled needle did to the first version of this harness).
+    home="${home%/}"
+    [[ -n "$home" ]] || home="/"
+    sudo_home="${sudo_home%/}"
+    if [[ "$uid" == "0" && -n "$sudo_home" ]]; then printf '%s\n' "$sudo_home"; return 0; fi
+    printf '%s\n' "$home"
+}
+
+_SUDO_HOME=""
+if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    # getent, not "/home/$SUDO_USER": the operator's home is whatever passwd says it is.
+    _SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+fi
+WIN_DIR="${WIN_DIR:-$(operator_home "$(id -u)" "$HOME" "$_SUDO_HOME")/.local/share/jol-fleet-health}"
 PROBE="$STAGING/.wtest"
 
 FAILURES=0
@@ -135,6 +170,10 @@ if [[ "$DRY_RUN" == "1" ]]; then
     esac
     printf 'DRY  : would write %s GiB as %s sequential 1 GiB direct steps to %s\n' "$SIZE_GIB" "$SIZE_GIB" "$PROBE"
     printf 'DRY  : per-interval samples to %s\n' "$WIN_DIR/write-bench-<utc>.tsv"
+    # The path is printed as RESOLVED, not as an expression: under sudo an operator must be
+    # able to see at a glance that the evidence will land in their own home, not in /root.
+    printf 'DRY  : running as uid %s (%s)%s\n' "$(id -u)" "$(id -un)" \
+        "${SUDO_USER:+, invoked by sudo from ${SUDO_USER}}"
     printf 'DRY  : %s sequential dd steps of 1 GiB, each at its own seek offset, oflag=direct conv=fdatasync\n' "$SIZE_GIB"
     printf 'DRY  : first step would be: dd if=/dev/zero of=%s bs=1M count=1024 seek=0 oflag=direct conv=fdatasync\n' "$PROBE"
     # Stated as a fact rather than a promise: this script always uses dd, so the line
@@ -154,6 +193,17 @@ mkdir -p "$WIN_DIR" 2>/dev/null || die "cannot create $WIN_DIR"
 OUT="$WIN_DIR/write-bench-$(date -u +%Y%m%dT%H%M%SZ).tsv"
 printf '# elapsed_s\tinterval_rate_MiBps\tpart MiB\tof %s GiB\n' "$SIZE_GIB" > "$OUT" \
     || die "cannot write $OUT"
+
+# Hand the evidence to the operator when it was written by root. Without this the file
+# is 644 but sits under a 700 /root or a root-owned directory, so --report run without
+# root still cannot see it — the failure above would merely have moved location.
+if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    if chown "$SUDO_USER:" "$WIN_DIR" "$OUT" 2>/dev/null; then
+        say "evidence handed to ${SUDO_USER}: $(stat -c '%U:%G %a' "$OUT")"
+    else
+        alert "could not chown $OUT to ${SUDO_USER} — read it with sudo, --report will not find it"
+    fi
+fi
 
 # Always remove the test file, even on interruption: leaving 32 GiB on a volume that
 # Phase 2 must copy into would change the very capacity the cutover preflight checks.

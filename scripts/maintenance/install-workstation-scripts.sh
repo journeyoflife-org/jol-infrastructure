@@ -31,15 +31,25 @@ BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 DRY_RUN="${DRY_RUN:-1}"
 
 # repo filename            -> installed name                    -> mode
-# The mode is per-target, and the split is not cosmetic. Three of these scripts
-# have a documented READ-ONLY invocation (--report, --verify-only, --preflight)
-# that is meant to be runnable without root; at 750 root:root the operator cannot
-# execute them at all, so the help text this installer prints advertised an
-# invocation that its own permissions forbade. Scripts whose every path mutates
-# stay 750. The read-only-capable ones are 755 root:root, which is safe because
-# each one enforces `id -u == 0` on its mutating path in code and dies otherwise.
+# The mode is per-target, and the split is not cosmetic. These scripts each offer a
+# documented READ-ONLY invocation (--report, --verify-only, --preflight) that is meant
+# to be runnable without root; at 750 root:root the operator cannot execute them at
+# all, so the help text this installer prints advertises an invocation its own
+# permissions forbid. 755 is safe because each one enforces `id -u == 0` on every
+# mutating path in code and dies otherwise — audited per script, not assumed.
+# As of this writing NO target is 750: the last one was reclassified after measuring
+# that its read-only path genuinely works unprivileged. A future entry claiming
+# "every path mutates" must show which branch it checked, because "750 by default"
+# is how the read-only invocations became unreachable in the first place.
 TARGETS=(
-    "fix-jol-backup-mount.sh|jol-fix-backup-mount.sh|750"
+    # 755, not 750. This line said 750 while the script it installs documents
+    # "--verify-only   # read-only, safe any time" and its own root guard exempts
+    # VERIFY_ONLY from the mutation abort. Measured on this host at 18:29Z: run as uid 1000,
+    # --verify-only exits 0, resolves /dev/sda1 by UUID, confirms off-device separation and
+    # lists the newest backup artifacts — it reaches no fstab write, because the verify-only
+    # branch exits at line 196 and the first mutation is `cp -p /etc/fstab` at 237. Leaving it
+    # 750 reproduced, in the manifest, the exact defect the block above says it eliminated.
+    "fix-jol-backup-mount.sh|jol-fix-backup-mount.sh|755"
     "backup-workstation-home.sh|jol-backup-home.sh|755"
     "provision-jolhome-disk.sh|jol-provision-home-disk.sh|755"
     "migrate-home-to-jolhome.sh|jol-migrate-home.sh|755"
@@ -145,6 +155,9 @@ say "  sudo DRY_RUN=0   $BIN_DIR/jol-backup-home.sh"
 say "  sudo DRY_RUN=1   $BIN_DIR/jol-provision-home-disk.sh"
 say "  $BIN_DIR/jol-backup-home.sh --report        # read-only, no root"
 say "  $BIN_DIR/jol-migrate-home.sh --preflight    # read-only, no root"
+say "  $BIN_DIR/jol-fix-backup-mount.sh --verify-only   # read-only, no root"
+say "  $BIN_DIR/jol-write-bench.sh --report        # last sustained-write measurement, no root"
+say "  $BIN_DIR/jol-record-custody.sh              # DRY_RUN=1 plans unprivileged; DRY_RUN=0 needs root"
 say ""
 say "Phase 2 (the /home cutover) must NOT be run from a desktop session:"
 say "  sudo systemctl isolate rescue.target"

@@ -24,13 +24,17 @@ check() { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1 — expected [$2] go
 
 PS="$(awk '/^plateau_summary\(\) \{/,/^\}/' "$TARGET")"
 TV="$(awk '/^target_verdict\(\) \{/,/^\}/' "$TARGET")"
+OH="$(awk '/^operator_home\(\) \{/,/^\}/' "$TARGET")"
 if [[ -z "$PS" ]] || ! grep -q 'TOO_FEW_SAMPLES' <<<"$PS"; then
     echo "extraction failed: plateau_summary not found in $TARGET"; exit 2
 fi
 if [[ -z "$TV" ]] || ! grep -q 'TARGET_NOT_EMPTY' <<<"$TV"; then
     echo "extraction failed: target_verdict not found in $TARGET"; exit 2
 fi
-eval "$PS"; eval "$TV"
+if [[ -z "$OH" ]] || ! grep -q 'sudo_home' <<<"$OH"; then
+    echo "extraction failed: operator_home not found in $TARGET"; exit 2
+fi
+eval "$PS"; eval "$TV"; eval "$OH"
 
 run_p() { printf '%s\n' "$1" | plateau_summary "${2:-76}"; }
 field() { printf '%s' "$1" | cut -f"$2"; }
@@ -125,6 +129,44 @@ check "resolving to / with a wrong source still says ROOT" "RESOLVES_TO_ROOT" "$
 check "a populated target is refused"          "TARGET_NOT_EMPTY" "$(target_verdict yes no /dev/mapper/jolhome_crypt 3)"
 check "the good case is OK"                    "OK"               "$(target_verdict yes no /dev/mapper/jolhome_crypt 0)"
 check "emptiness is a count, not a string"     "TARGET_NOT_EMPTY" "$(target_verdict yes no /dev/mapper/jolhome_crypt '0 stray')"
+
+echo ""
+echo "=== group 6: under sudo the evidence must land in the OPERATOR's home, not /root ==="
+# This is the defect that shipped in the first draft of the benchmark: WIN_DIR came from
+# $HOME, and the mutating path requires uid 0, so a sudo run wrote samples under a 700
+# /root while --report — deliberately reachable WITHOUT root — read the operator's own
+# home and answered "no benchmark has been run yet" for a measurement that HAD run.
+check "root + resolved sudo home -> operator home" \
+      "/home/jol" "$(operator_home 0 /root /home/jol)"
+check "plain user run keeps its own home"            \
+      "/home/jol" "$(operator_home 1000 /home/jol '')"
+# A genuine root shell (rescue.target, where §3.6 is meant to run) has no SUDO_USER and
+# /root IS correct — resolving it away would be the opposite bug.
+check "root with no sudo caller keeps /root"         \
+      "/root" "$(operator_home 0 /root '')"
+# getent can fail for an odd passwd entry, so sudo_home arrives empty and the fallback
+# is $HOME; the "a home of /" case below is what proves an empty component can never
+# reach the join as "/.local/share/…".
+# The uid condition must be load-bearing: a non-root process that happens to carry a
+# resolved home (sudo -u with HOME preserved) must NOT be redirected into it.
+check "non-root ignores sudo_home, keeps its own HOME" \
+      "/root" "$(operator_home 1000 /root /home/jol)"
+check "trailing slash is normalised, no double slash" \
+      "/home/jol" "$(operator_home 0 /root /home/jol/)"
+# The same normalisation on the NON-root side: without a fixture here, deleting the
+# home-normalisation line is invisible to the suite, and a mutant that survives is a
+# decision nobody tested.
+check "trailing slash normalised for a plain user too" \
+      "/home/jol" "$(operator_home 1000 /home/jol/ '')"
+check "a home of / does not become an empty string"   \
+      "/" "$(operator_home 1000 / '')"
+# The join the script actually performs, asserted end-to-end rather than in pieces.
+check "the evidence dir under sudo is operator-readable" \
+      "/home/jol/.local/share/jol-fleet-health" \
+      "$(operator_home 0 /root /home/jol)/.local/share/jol-fleet-health"
+check "and in rescue.target it is under /root" \
+      "/root/.local/share/jol-fleet-health" \
+      "$(operator_home 0 /root '')/.local/share/jol-fleet-health"
 
 echo ""
 echo "write-bench fixtures: $PASS passed, $FAILED failed"
