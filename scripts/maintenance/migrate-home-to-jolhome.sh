@@ -296,13 +296,25 @@ preflight() {
     # "a second keyslot exists": luksDump can say a slot is occupied while the
     # passphrase written down for it does not open the volume, and that is only
     # discoverable at 03:00 when the primary passphrase has already been mistyped.
-    local cref cverdict
+    local cref cverdict cdir
     cref="$(luks_uuid_reference)"
+    cdir="$(dirname "$CUSTODY_ATTESTATION")"
     if [[ ! -r "$CUSTODY_ATTESTATION" ]]; then
-        if [[ -e "$CUSTODY_ATTESTATION" ]]; then
+        # Branch order matters, and getting it wrong makes the gate assert something
+        # it cannot observe. Measured 2026-11-05: /var/lib/jol-workstation is
+        # drwx------ root:root, so an unprivileged -e on the artifact is false whether the file
+        # exists or not — traverse is denied on the parent. The first version of this
+        # gate therefore reported "no custody attestation, the keyslot has never been
+        # verified" from a vantage point that could see nothing. Absence, unreadable
+        # and no-directory are three different findings and only the third and second
+        # are distinguishable; the backup-proof gate above already does this and the
+        # wording here is brought into line with it.
+        if [[ ! -d "$cdir" ]]; then
+            alert "no custody directory $cdir — the recorder has never been run on this host"
+        elif [[ ! -r "$cdir" || ! -x "$cdir" ]]; then
+            alert "custody attestation cannot be inspected from uid $(id -u): $cdir denies traverse (mode $(stat -c '%a' "$cdir" 2>/dev/null || echo 'unreadable')) — custody is UNVERIFIED, not absent. Re-run with sudo, which the cutover requires anyway."
+        elif [[ -e "$CUSTODY_ATTESTATION" ]]; then
             alert "custody attestation exists at $CUSTODY_ATTESTATION but is not readable by uid $(id -u) — UNVERIFIED, not absent"
-        elif [[ ! -d "$(dirname "$CUSTODY_ATTESTATION")" ]]; then
-            alert "no custody directory $(dirname "$CUSTODY_ATTESTATION") — the recorder has never been run on this host"
         else
             alert "no custody attestation at $CUSTODY_ATTESTATION — the recovery keyslot has never been verified to open this volume"
         fi
