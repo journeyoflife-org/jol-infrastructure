@@ -62,6 +62,14 @@ PROOF_MAX_AGE_H="${PROOF_MAX_AGE_H:-6}"
 HOME_BACKUP_PROOF="${HOME_BACKUP_PROOF:-/var/lib/jol-workstation/home-backup-proof}"
 # Above this many operator-owned processes, /home is not quiet enough to copy.
 MAX_BUSY_PROCS="${MAX_BUSY_PROCS:-8}"
+# Custody attestation for the LUKS recovery keyslot. Written by
+# record-jolhome-custody.sh, which VERIFIES the keyslot opens the volume; this
+# script only reads the record. It contains no secret material by construction.
+CUSTODY_ATTESTATION="${CUSTODY_ATTESTATION:-/var/lib/jol-workstation/jolhome-custody}"
+# An attestation is a measurement, and measurements expire: it proves the slot
+# opened on the day it ran, not today. Default matches the quarterly rehearsal
+# cadence ratified as D5 in docs/compliance/sops-age-key-custody-plan.md.
+CUSTODY_MAX_AGE_D="${CUSTODY_MAX_AGE_D:-90}"
 
 FAILURES=0
 say()  { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -107,6 +115,93 @@ rewrite_fstab() {
         }
         { print }
     '
+}
+
+# -----------------------------------------------------------------------------
+# The custody gate, a PURE FUNCTION for the same reason rewrite_fstab is one:
+# until now the cutover only PRINTED advice that the recovery keyslot "must
+# already be in custody". A control with no way to fail is not a control — that
+# is the defect class this repo has been eliminating all week, and it was in my
+# own script.
+#
+#   stdin : attestation file contents (may be empty)
+#   $1    : the LUKS header UUID this volume REALLY has, read from /etc/crypttab
+#   $2    : now, seconds since the epoch
+#   $3    : maximum acceptable attestation age, days
+#
+# Prints exactly one token, and never reads a passphrase — it could not if it
+# wanted to, which is the point.
+#
+# Branch table (every one of these is a fixture in tests/test-home-migration.sh):
+#   EMPTY            no recognisable fields — the recorder never completed
+#   SECRET_RECORDED  the artifact claims a secret was written into it: refuse,
+#                    because custody copy and backup copy being one file on one
+#                    disk is precisely the single-copy failure being avoided
+#   NO_VERIFY_PASS   the keyslot was never demonstrated to open the volume.
+#                    Two keyslots existing is NOT this; it says a slot is
+#                    occupied, not that its passphrase is the one on paper
+#   NO_REFERENCE_UUID crypttab has no UUID= line for the mapper, so nothing to
+#                    bind the attestation to — fail closed rather than skip
+#   UUID_MISMATCH    attestation describes a different volume than will be
+#                    mounted: catches an artifact copied forward, or left behind
+#                    after a re-format, which is how attestations rot
+#   SINGLE_SLOT      fewer than 2 keyslots: one passphrase, no recovery path
+#   BAD_SLOTS        slots_total is not a number — an unreadable artifact
+#   NO_LOCATION      no custody location recorded
+#   BAD_STAMP        utc is not a parseable Z stamp
+#   FUTURE_STAMP     attestation dated ahead of now — cannot be trusted
+#   STALE            older than CUSTODY_MAX_AGE_D: re-run, it re-verifies
+#   PASS             all of the above hold
+# -----------------------------------------------------------------------------
+custody_verdict() {
+    local want="${1:-}" now="${2:-0}" maxdays="${3:-90}" k val
+    local v_verify='' v_uuid='' v_slots='' v_loc='' v_secret='' v_utc=''
+    while IFS='=' read -r k val; do
+        case "$k" in
+            verify)           v_verify="$val" ;;
+            luks_uuid)        v_uuid="$val" ;;
+            slots_total)      v_slots="$val" ;;
+            custody_location) v_loc="$val" ;;
+            secret_recorded)  v_secret="$val" ;;
+            utc)              v_utc="$val" ;;
+        esac
+    done
+
+    if [[ -z "$v_verify" && -z "$v_uuid" && -z "$v_utc" ]]; then
+        printf 'EMPTY\n'; return 0
+    fi
+    if [[ "$v_secret" != "no" ]]; then printf 'SECRET_RECORDED\n'; return 0; fi
+    if [[ "$v_verify" != "PASS" ]];   then printf 'NO_VERIFY_PASS\n';  return 0; fi
+    if [[ -z "$want" ]];              then printf 'NO_REFERENCE_UUID\n'; return 0; fi
+    if [[ "$v_uuid" != "$want" ]];    then printf 'UUID_MISMATCH\n';   return 0; fi
+    if [[ -z "$v_slots" ]]; then printf 'BAD_SLOTS\n'; return 0; fi
+    case "$v_slots" in
+        *[!0-9]*) printf 'BAD_SLOTS\n'; return 0 ;;
+    esac
+    if (( v_slots < 2 ));   then printf 'SINGLE_SLOT\n';  return 0; fi
+    if [[ -z "$v_loc" ]];   then printf 'NO_LOCATION\n';  return 0; fi
+    # Age comes from the recorded utc field, never from the file mtime: a
+    # written-then-copied artifact carries an inherited mtime, which is exactly
+    # how gate 6 reported a 36-minute-old backup as 1875 h stale.
+    case "$v_utc" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+        *) printf 'BAD_STAMP\n'; return 0 ;;
+    esac
+    local then_s age_d
+    then_s="$(date -u -d "$v_utc" +%s 2>/dev/null || echo '')"
+    if [[ -z "$then_s" ]]; then printf 'BAD_STAMP\n'; return 0; fi
+    age_d=$(( (now - then_s) / 86400 ))
+    if (( age_d < 0 )); then printf 'FUTURE_STAMP\n'; return 0; fi
+    if (( age_d > maxdays )); then printf 'STALE\n'; return 0; fi
+    printf 'PASS\n'
+}
+
+# The reference UUID comes from the boot configuration itself, not from a device
+# node — nvme2n1p1 was nvme0n1p? until the disk was swapped on 2026-11-05, and an
+# identity that changes when hardware changes cannot be a security binding.
+luks_uuid_reference() {
+    awk -v m="$MAPPER" '$1 == m && $2 ~ /^UUID=/ { sub(/^UUID=/, "", $2); print $2; exit }' \
+        /etc/crypttab 2>/dev/null
 }
 
 # =============================================================================
@@ -196,7 +291,38 @@ preflight() {
         fi
     fi
 
-    # 6. the consequence that must be a decision, not a surprise --------------
+    # 6. is the recovery keyslot VERIFIED, and attested into custody? --------
+    # This is the gate that replaces the prose. It is deliberately stricter than
+    # "a second keyslot exists": luksDump can say a slot is occupied while the
+    # passphrase written down for it does not open the volume, and that is only
+    # discoverable at 03:00 when the primary passphrase has already been mistyped.
+    local cref cverdict
+    cref="$(luks_uuid_reference)"
+    if [[ ! -r "$CUSTODY_ATTESTATION" ]]; then
+        if [[ -e "$CUSTODY_ATTESTATION" ]]; then
+            alert "custody attestation exists at $CUSTODY_ATTESTATION but is not readable by uid $(id -u) — UNVERIFIED, not absent"
+        elif [[ ! -d "$(dirname "$CUSTODY_ATTESTATION")" ]]; then
+            alert "no custody directory $(dirname "$CUSTODY_ATTESTATION") — the recorder has never been run on this host"
+        else
+            alert "no custody attestation at $CUSTODY_ATTESTATION — the recovery keyslot has never been verified to open this volume"
+        fi
+    elif [[ -z "$cref" ]]; then
+        alert "$MAPPER has no UUID= line in /etc/crypttab — nothing to bind the attestation to, so custody is UNVERIFIED"
+    else
+        cverdict="$(custody_verdict "$cref" "$(date -u +%s)" "$CUSTODY_MAX_AGE_D" < "$CUSTODY_ATTESTATION")"
+        if [[ "$cverdict" == "PASS" ]]; then
+            # Only the non-sensitive fields are echoed. The artifact is designed
+            # to contain none, but a gate should not rely on that holding.
+            # Field separator is '=' and the patterns must match it: the artifact
+            # is key=value, so a '/^keyslot:/' pattern would never fire and the
+            # line would silently report empties as if it had read real values.
+            info "custody: PASS — slot $(awk -F= '/^keyslot=/{print $2}' "$CUSTODY_ATTESTATION") of $(awk -F= '/^slots_total=/{print $2}' "$CUSTODY_ATTESTATION") verified against LUKS ${cref:0:8}…, location class $(awk -F= '/^custody_location=/{print $2}' "$CUSTODY_ATTESTATION"), attested $(awk -F= '/^utc=/{print $2}' "$CUSTODY_ATTESTATION")"
+        else
+            alert "custody attestation REJECTED ($cverdict) — run: sudo jol-record-custody.sh ; the branch table is in custody_verdict above"
+        fi
+    fi
+
+    # 7. the consequence that must be a decision, not a surprise --------------
     say ""
     say "CONSEQUENCE OF COMPLETING PHASE 2 — decide before the window, not during it:"
     if grep -qE "^\s*${MAPPER}\b" /etc/crypttab 2>/dev/null; then
@@ -211,9 +337,10 @@ preflight() {
     else
         alert "$MAPPER is not in /etc/crypttab — /home would not be available at boot at all"
     fi
-    say "  Recovery: the keyslot added in Phase 1 step 3 must already be in custody per"
-    say "  docs/compliance/sops-age-key-custody-plan.md. If it is not, do that first —"
-    say "  after the cutover a lost passphrase means a lost /home, not a lost volume."
+    say "  Recovery: the custody gate above is what enforces this now, not this text."
+    say "  It verifies the recovery keyslot OPENS the volume and binds that fact to the"
+    say "  LUKS header UUID in /etc/crypttab. After the cutover a lost passphrase means a"
+    say "  lost /home, not a lost volume — which is why the gate is fatal, not advisory."
 
     say ""
     if (( FAILURES == 0 )); then
@@ -262,6 +389,21 @@ NEXTRA="$(find "$STAGING" -mindepth 1 -maxdepth 1 ! -name lost+found 2>/dev/null
 AGE_H=$(( ( $(date -u +%s) - $(stat -c '%Y' "$HOME_BACKUP_PROOF") ) / 3600 ))
 (( AGE_H <= PROOF_MAX_AGE_H )) || die "backup proof is ${AGE_H} h old (limit ${PROOF_MAX_AGE_H} h) — re-run Phase 0"
 say "gate: backup proof ${AGE_H} h old, within the ${PROOF_MAX_AGE_H} h limit"
+
+# --- guard: the recovery keyslot must be VERIFIED and attested into custody.
+# Fatal, and fatal before anything is copied. The cutover makes the encrypted
+# volume the only way to read /home; an unverified recovery secret means one
+# mistyped passphrase is a total, irreversible loss of the operator's home tree.
+CREF="$(luks_uuid_reference)"
+[[ -r "$CUSTODY_ATTESTATION" ]] || die "no readable custody attestation at $CUSTODY_ATTESTATION.
+   Run first:  sudo jol-record-custody.sh
+   It makes cryptsetup verify on your own terminal that the recovery keyslot opens
+   this volume (the script never sees the passphrase), then records the attestation
+   that this gate reads. Nothing was copied and fstab was not touched."
+[[ -n "$CREF" ]] || die "$MAPPER has no UUID= line in /etc/crypttab — cannot bind the attestation to this volume"
+CVERDICT="$(custody_verdict "$CREF" "$(date -u +%s)" "$CUSTODY_MAX_AGE_D" < "$CUSTODY_ATTESTATION")"
+[[ "$CVERDICT" == "PASS" ]] || die "custody attestation rejected: $CVERDICT — re-run sudo jol-record-custody.sh (branch table in custody_verdict)"
+say "gate: custody attestation PASS — recovery keyslot verified against LUKS UUID ${CREF:0:8}…"
 
 # --- guard: capacity, from df
 PAYLOAD_KIB="$(df -k --output=used "$HOME_SRC" | tail -1 | tr -d ' ')"

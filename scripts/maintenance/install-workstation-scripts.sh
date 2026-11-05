@@ -43,6 +43,10 @@ TARGETS=(
     "backup-workstation-home.sh|jol-backup-home.sh|755"
     "provision-jolhome-disk.sh|jol-provision-home-disk.sh|755"
     "migrate-home-to-jolhome.sh|jol-migrate-home.sh|755"
+    # 755 like the other read-only-capable tools: DRY_RUN=1 is reachable without
+    # root and only plans. Its mutating paths and the 600 artifact write enforce
+    # uid 0 in code, so the world-readable mode exposes no writable path.
+    "record-jolhome-custody.sh|jol-record-custody.sh|755"
 )
 
 say() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }

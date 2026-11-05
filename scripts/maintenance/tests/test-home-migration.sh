@@ -149,6 +149,95 @@ else
     ok "the rewritten /home line does not carry nofail"
 fi
 
+echo "=== fixture group 8: custody_verdict — extraction is proven, not assumed ==="
+# Same rule as rewrite_fstab: extract from the script under test, and ABORT if the
+# extraction came back empty. A fixture group that silently extracts nothing is
+# how gate 6's fixtures passed while testing nothing.
+CFUNC="$(awk '/^custody_verdict\(\) \{/,/^\}/' "$TARGET")"
+if [[ -z "$CFUNC" ]] || ! grep -q 'SECRET_RECORDED' <<<"$CFUNC"; then
+    echo "extraction failed: custody_verdict not found between its markers in $TARGET"; exit 2
+fi
+eval "$CFUNC"
+
+REF_UUID="4fc2ae29-3dd3-43c7-b43b-325ba9ed2690"
+# A fixed "now" keeps the age branches deterministic rather than clock-dependent.
+NOW="$(date -u -d '2026-11-05T16:00:00Z' +%s)"
+FRESH_UTC="2026-11-05T15:00:00Z"
+
+# Builds a complete, valid artifact; each fixture mutates exactly one field so a
+# red fixture names the branch that broke instead of the whole gate.
+att() { # att <utc> <luks_uuid> <slots> <verify> <location> <secret_recorded>
+    printf 'schema=1\nutc=%s\nhost=ubuntu\nmapper=jolhome_crypt\nluks_uuid=%s\nkeyslot=1\nslots_total=%s\nverify=%s\nverify_cmd=cryptsetup luksOpen --test-passphrase\ncustody_location=%s\nattested_by=jol\nsecret_recorded=%s\n' \
+        "$1" "$2" "$3" "$4" "$5" "$6"
+}
+check "a complete fresh attestation PASSES" "PASS" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "an empty artifact is EMPTY, not a silent pass" "EMPTY" \
+    "$(printf '' | custody_verdict "$REF_UUID" "$NOW" 90)"
+
+echo "=== fixture group 9: every rejection branch fires, one field at a time ==="
+check "the keyslot was never verified -> NO_VERIFY_PASS" "NO_VERIFY_PASS" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 2 FAIL vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "an unverified artifact that also leaks a secret is caught as the leak first" "SECRET_RECORDED" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 2 FAIL vaultwarden:sops-custody yes | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "secret_recorded=yes alone -> SECRET_RECORDED" "SECRET_RECORDED" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 2 PASS vaultwarden:sops-custody yes | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "a missing secret_recorded field fails closed, not permissively" "SECRET_RECORDED" \
+    "$(printf 'utc=%s\nluks_uuid=%s\nslots_total=2\nverify=PASS\ncustody_location=x\n' "$FRESH_UTC" "$REF_UUID" | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "attestation for a DIFFERENT volume -> UUID_MISMATCH" "UUID_MISMATCH" \
+    "$(att "$FRESH_UTC" "deadbeef-0000-0000-0000-000000000000" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "no crypttab reference UUID -> NO_REFERENCE_UUID (cannot skip)" "NO_REFERENCE_UUID" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "" "$NOW" 90)"
+check "one keyslot means no recovery path -> SINGLE_SLOT" "SINGLE_SLOT" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 1 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "a non-numeric slot count is refused, not read as zero" "BAD_SLOTS" \
+    "$(att "$FRESH_UTC" "$REF_UUID" two PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "empty custody location -> NO_LOCATION" "NO_LOCATION" \
+    "$(att "$FRESH_UTC" "$REF_UUID" 2 PASS '' no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "a tz-hybrid stamp (no Z) -> BAD_STAMP" "BAD_STAMP" \
+    "$(att '2026-11-05 15:00' "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "an attestation dated in the future -> FUTURE_STAMP" "FUTURE_STAMP" \
+    "$(att '2026-12-01T00:00:00Z' "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+
+echo "=== fixture group 10: the age limit actually discriminates at the boundary ==="
+# 89 days passes, 91 days fails, against a 90-day limit. Without both sides this is
+# another vacuous gate: a limit that can never fire looks identical to a working one.
+check "89 days old is still within a 90-day limit" "PASS" \
+    "$(att '2026-08-08T16:00:00Z' "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "91 days old is STALE" "STALE" \
+    "$(att '2026-08-06T16:00:00Z' "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 90)"
+check "the limit is honoured when tightened to 1 day" "STALE" \
+    "$(att '2026-11-03T16:00:00Z' "$REF_UUID" 2 PASS vaultwarden:sops-custody no | custody_verdict "$REF_UUID" "$NOW" 1)"
+
+echo "=== fixture group 11: cross-file contract — the recorder writes what the gate parses ==="
+# The dangerous direction: the gate reads a field the recorder stopped writing.
+# That does not error, it silently degrades to a rejection branch forever, or worse
+# to an empty value that a laxer branch accepts. Assert the subset relationship.
+REC="$HERE/../record-jolhome-custody.sh"
+if [[ ! -r "$REC" ]]; then
+    bad "recorder $REC is missing — the custody contract cannot be checked"
+else
+    # Fields the gate reads, derived from its OWN case labels rather than
+    # hardcoded here. Renaming a field in the gate then changes the expectation
+    # instead of quietly keeping the fixture green — the same trap that let a
+    # placeholder sed pattern pass as a working rewrite.
+    PARSED="$(printf '%s\n' "$CFUNC" | awk '/^[ \t]*[a-z_]+\)[ \t]+v_/{ sub(/^[ \t]*/,""); sub(/\).*/,""); print }' | sort -u | tr '\n' ' ')"
+    WRITTEN="$(grep -oE "printf '[a-z_]+=" "$REC" | sed "s/printf '//; s/=//" | sort -u | tr '\n' ' ')"
+    check "the gate parses exactly the six intended fields" \
+        "custody_location luks_uuid secret_recorded slots_total utc verify " "$PARSED"
+    check "the gate parses no accidental seventh field" "6" "$(printf '%s' "$PARSED" | wc -w)"
+    check "the recorder writes at least as many fields as the gate parses" "1" \
+        "$(( $(printf '%s' "$WRITTEN" | wc -w) >= $(printf '%s' "$PARSED" | wc -w) ))"
+    MISSING=''
+    for f in $PARSED; do
+        case " $WRITTEN " in
+            *" $f "*) : ;;
+            *) MISSING="$MISSING $f" ;;
+        esac
+    done
+    check "every parsed field is written by the recorder (empty means all present)" "" "$MISSING"
+fi
+
 echo ""
 echo "migration fixtures: $PASS passed, $FAILED failed"
 [[ "$FAILED" -eq 0 ]] || exit 1
