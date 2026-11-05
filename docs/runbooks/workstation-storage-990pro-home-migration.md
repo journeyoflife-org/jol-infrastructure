@@ -415,15 +415,47 @@ a 76 GiB `rsync`, which is exactly the workload that crosses that boundary — s
 empty disk, rather than discovering it mid-migration with `/home` unmounted.
 
 ```bash
-# 32 GiB defeats most dynamic SLC caches; watch for the speed collapse, not the average.
-sudo dd if=/dev/zero of=/mnt/jolhome-staging/.wtest bs=1M count=32768 oflag=direct conv=fdatasync
-rm -f /mnt/jolhome-staging/.wtest && sync
+# Executed by scripts/maintenance/benchmark-jolhome-writes.sh (installed as
+# /usr/local/bin/jol-write-bench.sh). Read-only plan first:
+bash scripts/maintenance/benchmark-jolhome-writes.sh                    # DRY_RUN=1
+# then, as root:
+DRY_RUN=0 sudo jol-write-bench.sh
 ```
 
-Record the number. **Expected:** a high rate for the first chunk, then a visible plateau. The plateau is
-the speed that sets the Phase 2 copy window — at 300 MB/s, 76 GiB is roughly 5 minutes; if the plateau is
-near 100 MB/s it is closer to 15, before verification passes. Plan the rescue-mode window from the
-measured plateau, not from the vendor's peak figure.
+The script exists rather than the pasted command because the manual form is three steps
+where the middle step is the evidence and the last is the one people skip. It writes
+32 GiB as sequential 1 GiB `oflag=direct` steps, **each at its own seek offset** —
+rewriting a growing file from offset zero yields a cumulative average that hides the
+very cache transition being looked for — records every interval to
+`~/.local/share/jol-fleet-health/write-bench-<utc>.tsv`, removes its test file on any
+exit path, and **verifies that removal by post-state** rather than by having run `rm`.
+
+Refusals, each its own token and each fixture-tested: the target is not mounted, the
+target resolves to `/` (the exact `/mnt/jol-backup` failure from this thread), the
+backing source is not `/dev/mapper/jolhome_crypt`, or the target already holds
+something. An empty input, one sample, two samples or all-zero rates produce a refusal
+token, never a number.
+
+What it reports: peak, **sustained** (the mean of the last third of intervals, not of
+all of them — a whole-run mean averages the fast SLC phase into the slow TLC phase and
+describes neither), the collapse time, and the resulting copy window for a 76 GiB
+payload **rounded up**, because a truncated window is a window that runs out.
+
+> A note on how this section was verified rather than assumed: the first draft of the
+> collapse detector scanned for any sample at or below half the eventual maximum, which
+> reported a cache cliff at 20 s on synthetic data where the drive was simply speeding
+> up from 100 to 1000 MiB/s. A collapse is now only searched for after the last peak
+> sample. Eleven mutations of these two functions are recorded red in
+> `scripts/maintenance/tests/test-write-bench.sh` (27 fixtures), including the
+> whole-run-mean and truncate-instead-of-ceil variants.
+
+**Expected:** a high rate for the first chunk, then a visible plateau. The plateau is
+the speed that sets the Phase 2 copy window — at 300 MB/s, 76 GiB is roughly 5 minutes;
+if the plateau is near 100 MB/s it is closer to 15, before verification passes. Plan the
+rescue-mode window from the measured plateau, not from the vendor's peak figure.
+
+The script's own summary already applies that rule, so the number to write into the
+Phase 2 booking is the `WINDOW_MIN_FOR_76GIB` line it prints, not the peak.
 
 > If `fio` is available, `fio --name=seq --rw=write --bs=1M --size=32G --runtime=120 --time_based
 > --direct=1 --filename=/mnt/jolhome-staging/.fio` gives the same answer with a per-interval breakdown,
@@ -526,7 +558,24 @@ a week of normal work. That partition becomes free capacity only after that.
 
 > A cleaner variant of 4.4, preferred if you want it reversible by hand: keep `/home` on `p7` and bind-mount
 > the new volume over the specific heavy directories instead. That avoids a rescue-mode window entirely, at
-> the cost of `/home` staying small. Decide before 4.1, not during it.
+> the cost of `/home` staying small. Decide before §4.0, not during it.
+
+### 4.0 Prerequisites before the window is booked (all measured 2026-11-05)
+
+Each of these is checked by `jol-migrate-home.sh --preflight`, so none of them has to be
+remembered. They are listed here because the window is short and a surprise inside it is
+expensive.
+
+| # | Precondition | Status | Who closes it |
+|---|---|---|---|
+| 1 | Recovery keyslot **verified to open the volume** and attested into custody | **OPEN** — no attestation exists; `/var/lib/jol-workstation` is `drwx------ root:root`, so an unprivileged run can only report UNVERIFIED | owner: place the passphrase in Vaultwarden, then `sudo jol-record-custody.sh` |
+| 2 | A **current** Phase 0 backup proof (≤ 6 h) | **STALE BY DESIGN** — the 13:10Z snapshot ages out; re-run before the window | owner: `sudo jol-backup-home.sh` |
+| 3 | The scripts are actually installed on the host | **FAILING** — `jol-migrate-home.sh` and `jol-record-custody.sh` are absent from `/usr/local/bin`, and the three that exist are still mode `750 root:root`, predating the per-target-mode change. Their content is therefore **UNVERIFIABLE** by uid 1000 — not "drifted", unreadable | owner: one `DRY_RUN=0 sudo jol-install-scripts.sh` (or the repo copy) re-run |
+| 4 | §3.6 sustained-write measurement recorded | **OPEN** — tooling now exists (`jol-write-bench.sh`), never executed | owner, as root |
+| 5 | Boot posture is not a trap | **PASS** — crypttab options `luks`, and both `Automatic-Reboot` and `Automatic-Reboot-Time` are commented out in `50unattended-upgrades`, so nothing reboots the machine into a prompt nobody is there to answer. The gate fails if the pair ever becomes real | automatic |
+| 6 | `tune2fs -m 1` on `/home` | **OPEN, and not urgent** — measured free space moved 8512 → 8568 → 8563 MiB across the recorded samples, i.e. no observable fill. Do this for headroom, not for time | owner, as root |
+
+Item 3 blocks items 1, 2 and 4 in practice: the operator cannot run what is not installed.
 
 ### 4.5 Gate
 `df -h /home` shows the new volume; `ls -Z`/`stat` permissions match; the IDE starts; the agent starts;
@@ -635,10 +684,20 @@ Named so nobody mistakes a storage plan for a resolved risk register:
 2. Phase 0  back up /home + restore  DONE 2026-11-05T13:10Z — proof accepted by gate 0
    └ daily recurrence                 DONE — jol-home-backup.timer 03:40, gate 6 monitors it
 3. Phase 1  provision-jolhome-disk   DONE 2026-11-05T14:29Z — LUKS2 + ext4 + crypttab + fstab,
-                                        boot chain verified; §3.6 sustained-write test NOT run
-4. Phase 2  move /home               PENDING — needs a rescue window; jol-migrate-home.sh
+                                        boot chain verified
+   └ §3.6 sustained-write test       TOOLING DONE 2026-11-05 (jol-write-bench.sh, 27 fixtures,
+                                        11 mutants red); EXECUTION still owner action
+   └ custody gate (t6)               DONE — record-jolhome-custody.sh + a 12-branch
+                                        custody_verdict; Phase 2 refuses without verify=PASS
+4. Phase 2  move /home               PENDING — blocked on §4.0 items 1–4; jol-migrate-home.sh
 5. Phase 3  re-derive AIDE / auditd / backup scope / watchdog / docs / CHANGELOG
 ```
+
+One correction to this section's own history: it previously referred to a "§4.1" for the
+`tune2fs -m 1` capacity win. **No §4.1 exists** in this document — that content is in
+§2.0. A todo citing §4.1 was written from recollection of an edit rather than from the
+file's actual headings, which is the same remembered-letter failure this runbook
+documents at §3.1 and in the `/mnt/jol-backup` outage.
 
 List items 1–3 (the backup-mount repair, Phase 0 and Phase 1) are complete and independently verified,
 including the boot chain (cryptsetup.target → device → fsck → mount, all present in

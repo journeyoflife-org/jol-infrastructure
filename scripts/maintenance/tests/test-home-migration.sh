@@ -238,6 +238,75 @@ else
     check "every parsed field is written by the recorder (empty means all present)" "" "$MISSING"
 fi
 
+echo "=== fixture group 12: boot posture (t8) — a decision turned into a property ==="
+BV="$(awk '/^boot_posture_verdict\(\) \{/,/^\}/' "$TARGET")"
+if [[ -z "$BV" ]] || ! grep -q 'PROMPT_WITH_AUTOREBOOT' <<<"$BV"; then
+    echo "extraction failed: boot_posture_verdict not found in $TARGET"; exit 2
+fi
+eval "$BV"
+check "no crypttab entry is its own verdict, not 'prompt'" "NO_CRYPTTAB_ENTRY" \
+    "$(boot_posture_verdict '' unset -)"
+check "key=none with no unattended reboot -> prompt required, tolerated" "PROMPT_REQUIRED_NO_AUTOREBOOT" \
+    "$(boot_posture_verdict 'luks' false -)"
+check "key=none with unset reboot is still the tolerated case" "PROMPT_REQUIRED_NO_AUTOREBOOT" \
+    "$(boot_posture_verdict 'luks' unset -)"
+check "key=none AND apt rebooting itself -> the failing pair" "PROMPT_WITH_AUTOREBOOT" \
+    "$(boot_posture_verdict 'luks' true 02:00)"
+# Order matters: a TPM2 binding removes the prompt, so it must be decided BEFORE the
+# reboot flag. Reversing these two branches would report a safely-unattended volume as
+# a failure, i.e. a false alarm on the one configuration that is actually fine.
+check "a TPM2 binding outranks the reboot flag" "UNATTENDED_OK_TPM2" \
+    "$(boot_posture_verdict 'luks,tpm2-device=auto' true 02:00)"
+check "an explicit tpm2 device path is also unattended-capable" "UNATTENDED_OK_TPM2" \
+    "$(boot_posture_verdict 'luks,tpm2-device=/dev/tpmrm0' true -)"
+check "a keyscript means no human is needed at boot" "UNATTENDED_OK_KEYSOURCE" \
+    "$(boot_posture_verdict 'luks,keyscript=/usr/sbin/foo' true -)"
+check "noauto is reported as a manual mount, not a prompt" "MANUAL_OR_OPTIONAL_MOUNT" \
+    "$(boot_posture_verdict 'luks,noauto' false -)"
+check "bare 'keyscript' text is not mistaken for an option token" "PROMPT_REQUIRED_NO_AUTOREBOOT" \
+    "$(boot_posture_verdict 'luks' false -)"
+
+echo "=== fixture group 13: reading apt config — comments must not count as settings ==="
+ARS="$(awk '/^auto_reboot_setting\(\) \{/,/^\}/' "$TARGET")"
+ART="$(awk '/^auto_reboot_time\(\) \{/,/^\}/' "$TARGET")"
+if [[ -z "$ARS" ]] || [[ -z "$ART" ]]; then
+    echo "extraction failed: auto_reboot_setting/time not found in $TARGET"; exit 2
+fi
+eval "$ARS"; eval "$ART"
+CFG="$(mktemp -d)"; trap 'rm -rf "$CFG"' EXIT
+aptcfg() { rm -rf "$CFG"; mkdir -p "$CFG"; printf '%s\n' "$1" > "$CFG/50unattended-upgrades"; }
+# Bound for the sourced function, its only consumer; across the `.` the linter cannot
+# see the use, so it reads as unused.
+# shellcheck disable=SC2034
+UU_CONFIG_DIR="$CFG"
+
+# POSITIVE CONTROL FIRST. The first version of auto_reboot_setting had a regex that
+# matched nothing, so EVERY case returned "unset" and most assertions passed as a side
+# effect of the probe being dead. A negative is only worth anything after the same
+# probe has been shown able to say yes.
+aptcfg 'Unattended-Upgrade::Automatic-Reboot "true";'
+check "PROBE ALIVE: a plainly-enabled directive reads as true" "true" "$(auto_reboot_setting)"
+
+aptcfg '// Unattended-Upgrade::Automatic-Reboot "true";'
+check "a COMMENTED-OUT 'true' must read as unset, not true" "unset" "$(auto_reboot_setting)"
+aptcfg 'Unattended-Upgrade::Automatic-Reboot "true";'
+check "an uncommented true is detected" "true" "$(auto_reboot_setting)"
+aptcfg 'Unattended-Upgrade::Automatic-Reboot "false";'
+check "an uncommented false is detected as false" "false" "$(auto_reboot_setting)"
+aptcfg '//Unattended-Upgrade::Automatic-Reboot-Time "02:00";'
+check "the -Time directive must never match the setting lookup" "unset" "$(auto_reboot_setting)"
+aptcfg 'Unattended-Upgrade::Automatic-Reboot-Time "02:00";'
+# POSITIVE CONTROL for the time reader too, for the same reason.
+check "PROBE ALIVE: the reboot time is readable when set" "02:00" "$(auto_reboot_time)"
+check "…and the setting itself stays unset when only the time is configured" "unset" "$(auto_reboot_setting)"
+aptcfg '//Unattended-Upgrade::Automatic-Reboot-Time "02:00";'
+check "a commented -Time yields no time either" "" "$(auto_reboot_time)"
+aptcfg '// nothing enabled here'
+check "comment-only file reads as unset" "unset" "$(auto_reboot_setting)"
+rm -rf "$CFG"; mkdir -p "$CFG"
+check "an empty config dir reads as unset, not false" "unset" "$(auto_reboot_setting)"
+check "and no reboot time is invented" "" "$(auto_reboot_time)"
+
 echo ""
 echo "migration fixtures: $PASS passed, $FAILED failed"
 [[ "$FAILED" -eq 0 ]] || exit 1

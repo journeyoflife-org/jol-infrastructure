@@ -70,6 +70,11 @@ CUSTODY_ATTESTATION="${CUSTODY_ATTESTATION:-/var/lib/jol-workstation/jolhome-cus
 # opened on the day it ran, not today. Default matches the quarterly rehearsal
 # cadence ratified as D5 in docs/compliance/sops-age-key-custody-plan.md.
 CUSTODY_MAX_AGE_D="${CUSTODY_MAX_AGE_D:-90}"
+CRYPTTAB="${CRYPTTAB:-/etc/crypttab}"
+# The apt unattended-upgrade config is world-readable, so this can be checked without
+# root. It is checked because it is the only thing that turns a console passphrase
+# prompt from an inconvenience into a machine that is down until someone walks over.
+UU_CONFIG_DIR="${UU_CONFIG_DIR:-/etc/apt/apt.conf.d}"
 
 FAILURES=0
 say()  { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -201,7 +206,75 @@ custody_verdict() {
 # identity that changes when hardware changes cannot be a security binding.
 luks_uuid_reference() {
     awk -v m="$MAPPER" '$1 == m && $2 ~ /^UUID=/ { sub(/^UUID=/, "", $2); print $2; exit }' \
-        /etc/crypttab 2>/dev/null
+        "$CRYPTTAB" 2>/dev/null
+}
+
+# The raw options field for the mapper, as written in crypttab.
+luks_crypttab_options() {
+    awk -v m="$MAPPER" '$1 == m { print $4; exit }' "$CRYPTTAB" 2>/dev/null
+}
+
+# -----------------------------------------------------------------------------
+# boot_posture_verdict — turn the TPM2-vs-prompt question (t8) from a decision
+# someone made once in chat into a property that is re-checked every run.
+#
+#   $1: the crypttab options field for the mapper ('' when there is no entry)
+#   $2: whether apt will reboot the machine by itself: true | false | unset
+#   $3: the configured Automatic-Reboot-Time, or '-'
+#
+# Why this exists: with key file 'none' the volume unlocks only if a human types
+# at the physical console. Measured on this host, BOTH relevant directives in
+# 50unattended-upgrades are commented out — line 94 `//...Automatic-Reboot "false";`
+# and line 103 `//...Automatic-Reboot-Time "02:00";` — so apt never reboots the machine
+# and the prompt only appears when someone is already at the keyboard. The risk is
+# therefore prospective, not current: uncommenting the first while the second sits at
+# 02:00 gives a nightly automatic reboot into a passphrase prompt that nobody is there
+# to answer. That specific pair is what this gate fails on.
+# -----------------------------------------------------------------------------
+boot_posture_verdict() {
+    local opts="${1:-}" reboot="${2:-unset}"
+    # $3 (the configured reboot time) is deliberately not consumed: the verdict must
+    # stay a stable token for fixtures, and the caller already holds the time for its
+    # message. Call sites may still pass it.
+    if [[ -z "$opts" ]]; then printf 'NO_CRYPTTAB_ENTRY\n'; return 0; fi
+    # tpm2-device= (any value) or a key-file other than 'none' means boot can unlock
+    # without a person present.
+    case "$opts" in
+        *tpm2-device=auto*|*tpm2-device=/dev*) printf 'UNATTENDED_OK_TPM2\n';   return 0 ;;
+    esac
+    case ",$opts," in
+        *,keyscript=*|*,tpm2-device-key=*) printf 'UNATTENDED_OK_KEYSOURCE\n'; return 0 ;;
+    esac
+    if [[ "$reboot" == "true" ]]; then
+        printf 'PROMPT_WITH_AUTOREBOOT\n'; return 0
+    fi
+    if [[ "$opts" == *,noauto* || "$opts" == *,nofail* ]]; then
+        printf 'MANUAL_OR_OPTIONAL_MOUNT\n'; return 0
+    fi
+    printf 'PROMPT_REQUIRED_NO_AUTOREBOOT\n'
+}
+
+# Reads the apt config; returns true|false|unset.
+# Two things this must not get wrong, and the first draft got both wrong:
+#   - comments must not count. Ubuntu ships `//Unattended-Upgrade::Automatic-Reboot
+#     "false";`, so anchoring on the start of the line makes `//` unmatchable.
+#   - the directive name is NOT quoted; only its VALUE is. A pattern demanding a quote
+#     straight after "Reboot" matches nothing at all, which is worse than a false
+#     positive because every branch then silently reports "unset" and half the fixtures
+#     pass for the wrong reason.
+# Requiring whitespace-then-quoted-value also keeps the -Time directive out of this
+# lookup, since there "Reboot" is followed by "-Time", not by a quoted value.
+auto_reboot_setting() {
+    local hit
+    hit="$(grep -hE '^[[:space:]]*Unattended-Upgrade::Automatic-Reboot[[:space:]]+"' \
+              "$UU_CONFIG_DIR"/* 2>/dev/null | tail -1)"
+    if [[ -z "$hit" ]]; then printf 'unset'; return 0; fi
+    if [[ "$hit" == *'"true"'* || "$hit" == *'"1"'* ]]; then printf 'true'; else printf 'false'; fi
+}
+
+auto_reboot_time() {
+    grep -hE '^[[:space:]]*Unattended-Upgrade::Automatic-Reboot-Time[[:space:]]+"' \
+        "$UU_CONFIG_DIR"/* 2>/dev/null | tail -1 | grep -oE '"[0-9]{1,2}:[0-9]{2}"' | tr -d '"' || true
 }
 
 # =============================================================================
@@ -218,7 +291,15 @@ preflight() {
     win_mib=$(( size * 4 / 100 / 1048576 ))
     say "reserve: $reserved_mib MiB held for root on $HOME_SRC; root never writes there."
     say "         tune2fs -m 1 returns ~${win_mib} MiB immediately, no reboot, reversible."
-    say "         This is mitigation, not a fix — it buys roughly a day at the observed growth."
+    # Deliberately no "this buys N days" claim. An earlier version asserted "roughly a
+    # day at the observed growth" and the growth figure behind it had been carried from
+    # memory: the MiB samples for 2026-11-05 show /home free space moving 8512 -> 8568
+    # -> 8563 over the recorded window, i.e. no measurable fill at all. Derive any
+    # remaining-time figure from the watchdog's capacity-samples.tsv instead of
+    # restating a rate here — see the awk recipe in that script's header.
+    say "         This is mitigation, not a fix, and it is not urgent: /home free space"
+    say "         is not measurably falling. Measure the trend from"
+    say "         ~/.local/share/jol-fleet-health/capacity-samples.tsv, do not restate it."
 
     # 2. is /home quiet enough to copy? --------------------------------------
     local owner busy gui
@@ -336,19 +417,41 @@ preflight() {
 
     # 7. the consequence that must be a decision, not a surprise --------------
     say ""
-    say "CONSEQUENCE OF COMPLETING PHASE 2 — decide before the window, not during it:"
-    if grep -qE "^\s*${MAPPER}\b" /etc/crypttab 2>/dev/null; then
-        if grep -qE "^\s*${MAPPER}\b.*\btpm2\b" /etc/crypttab 2>/dev/null; then
-            say "  crypttab has a TPM2 binding for $MAPPER — boot may unlock unattended."
-        else
-            say "  crypttab unlocks $MAPPER with 'none' as the key file, so EVERY BOOT PROMPTS"
-            say "  for the passphrase on the console. An unattended reboot after a kernel update"
-            say "  will sit at that prompt until someone types. TPM2 enrolment was declined on"
-            say "  2026-11-05 ('maybe later'); this is the cost of that decision becoming real."
-        fi
-    else
-        alert "$MAPPER is not in /etc/crypttab — /home would not be available at boot at all"
-    fi
+    say "CONSEQUENCE OF COMPLETING PHASE 2 — decided from the files, not from memory:"
+    BOOT_OPTS="$(luks_crypttab_options)"
+    UU_REBOOT="$(auto_reboot_setting)"
+    UU_TIME="$(auto_reboot_time)"
+    BOOT_VERDICT="$(boot_posture_verdict "$BOOT_OPTS" "$UU_REBOOT" "${UU_TIME:--}")"
+    say "  crypttab options for $MAPPER: '${BOOT_OPTS:-none}'   apt Automatic-Reboot: $UU_REBOOT${UU_TIME:+ (time would be $UU_TIME)}"
+    case "$BOOT_VERDICT" in
+        NO_CRYPTTAB_ENTRY)
+            alert "$MAPPER is not in $CRYPTTAB — /home would not be available at boot at all" ;;
+        UNATTENDED_OK_TPM2)
+            info "  boot can unlock unattended via a TPM2 binding — no console prompt" ;;
+        UNATTENDED_OK_KEYSOURCE)
+            info "  boot can unlock unattended via a key source other than a typed passphrase" ;;
+        PROMPT_WITH_AUTOREBOOT)
+            # This is the combination that actually costs availability, and it is worth
+            # failing on rather than describing in prose: apt reboots the machine with no
+            # one there, and the volume cannot open without someone typing.
+            alert "boot needs a typed passphrase AND apt is configured to reboot by itself${UU_TIME:+ at $UU_TIME} — an unattended update would leave this machine at a prompt until a person is physically present. Either enrol TPM2 or turn Automatic-Reboot off." ;;
+        MANUAL_OR_OPTIONAL_MOUNT)
+            info "  entry is noauto/nofail — it will not be mounted at boot without action" ;;
+        PROMPT_REQUIRED_NO_AUTOREBOOT)
+            info "  EVERY BOOT PROMPTS for the passphrase on the console, but nothing reboots"
+            info "  this machine by itself (Automatic-Reboot is $UU_REBOOT), so the prompt only"
+            info "  occurs when someone is already at the keyboard. TPM2 enrolment was declined"
+            info "  on 2026-11-05; this is that decision, re-checked each run rather than assumed."
+            info "  When it is taken up: systemd-cryptenroll, NOT cryptsetup — measured here,"
+            info "  cryptsetup advertises no TPM support while systemd-cryptenroll does."
+            case "$UU_TIME" in
+                '') : ;;
+                *) info "  TRIPWIRE: Automatic-Reboot-Time $UU_TIME is ACTIVE while the flag is off,"
+                   info "  so nothing reboots today. Enabling Automatic-Reboot without revisiting this"
+                   info "  turns a nightly $UU_TIME update into downtime until a person arrives."
+                   info "  This gate fails on that pair." ;;
+            esac ;;
+    esac
     say "  Recovery: the custody gate above is what enforces this now, not this text."
     say "  It verifies the recovery keyslot OPENS the volume and binds that fact to the"
     say "  LUKS header UUID in /etc/crypttab. After the cutover a lost passphrase means a"
@@ -416,6 +519,25 @@ CREF="$(luks_uuid_reference)"
 CVERDICT="$(custody_verdict "$CREF" "$(date -u +%s)" "$CUSTODY_MAX_AGE_D" < "$CUSTODY_ATTESTATION")"
 [[ "$CVERDICT" == "PASS" ]] || die "custody attestation rejected: $CVERDICT — re-run sudo jol-record-custody.sh (branch table in custody_verdict)"
 say "gate: custody attestation PASS — recovery keyslot verified against LUKS UUID ${CREF:0:8}…"
+
+# --- guard: the boot posture must not be a trap after the swap ----------------
+# Before Phase 2 an unopenable volume costs an empty disk. After it, the same
+# event means no /home, so no SSH key, no repos and no user login. A machine that
+# reboots itself with nobody there cannot answer a console passphrase prompt, so
+# that pair is refused here rather than left as a line of advice in a preflight.
+BOOT_OPTS="$(luks_crypttab_options)"
+UU_REBOOT="$(auto_reboot_setting)"
+UU_TIME="$(auto_reboot_time)"
+BOOT_VERDICT="$(boot_posture_verdict "$BOOT_OPTS" "$UU_REBOOT" "${UU_TIME:--}")"
+if [[ "$BOOT_VERDICT" == "PROMPT_WITH_AUTOREBOOT" && "${ALLOW_UNATTENDED_REBOOT:-0}" != "1" ]]; then
+    die "boot needs a typed passphrase for $MAPPER AND apt is set to reboot unattended${UU_TIME:+ at $UU_TIME}.
+   After this cutover that means an unattended update leaves the machine unable to mount
+   /home until someone is physically at the console. Choose one, then re-run:
+     a) enrol a TPM2 key with systemd-cryptenroll (cryptsetup has no TPM support here), or
+     b) set Unattended-Upgrade::Automatic-Reboot to 'false' in $UU_CONFIG_DIR.
+   Deliberately overriding this once: ALLOW_UNATTENDED_REBOOT=1 (record it in the ledger)."
+fi
+say "gate: boot posture $BOOT_VERDICT (crypttab options '${BOOT_OPTS:-none}', apt Automatic-Reboot $UU_REBOOT)"
 
 # --- guard: capacity, from df
 PAYLOAD_KIB="$(df -k --output=used "$HOME_SRC" | tail -1 | tr -d ' ')"

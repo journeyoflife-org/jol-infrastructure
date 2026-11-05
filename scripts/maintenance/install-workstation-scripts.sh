@@ -47,6 +47,9 @@ TARGETS=(
     # root and only plans. Its mutating paths and the 600 artifact write enforce
     # uid 0 in code, so the world-readable mode exposes no writable path.
     "record-jolhome-custody.sh|jol-record-custody.sh|755"
+    # Read-only DRY_RUN plus a --report that reads the operator's own evidence dir, so
+    # 755; the write path enforces uid 0 in code and cannot be reached without sudo.
+    "benchmark-jolhome-writes.sh|jol-write-bench.sh|755"
 )
 
 say() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
