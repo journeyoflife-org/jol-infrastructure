@@ -25,6 +25,7 @@ check() { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1 — expected [$2] go
 PS="$(awk '/^plateau_summary\(\) \{/,/^\}/' "$TARGET")"
 TV="$(awk '/^target_verdict\(\) \{/,/^\}/' "$TARGET")"
 OH="$(awk '/^operator_home\(\) \{/,/^\}/' "$TARGET")"
+HV="$(awk '/^handover_verdict\(\) \{/,/^\}/' "$TARGET")"
 if [[ -z "$PS" ]] || ! grep -q 'TOO_FEW_SAMPLES' <<<"$PS"; then
     echo "extraction failed: plateau_summary not found in $TARGET"; exit 2
 fi
@@ -34,7 +35,10 @@ fi
 if [[ -z "$OH" ]] || ! grep -q 'sudo_home' <<<"$OH"; then
     echo "extraction failed: operator_home not found in $TARGET"; exit 2
 fi
-eval "$PS"; eval "$TV"; eval "$OH"
+if [[ -z "$HV" ]] || ! grep -q 'FILE_ONLY_WARN' <<<"$HV"; then
+    echo "extraction failed: handover_verdict not found in $TARGET"; exit 2
+fi
+eval "$PS"; eval "$TV"; eval "$OH"; eval "$HV"
 
 run_p() { printf '%s\n' "$1" | plateau_summary "${2:-76}"; }
 field() { printf '%s' "$1" | cut -f"$2"; }
@@ -167,6 +171,36 @@ check "the evidence dir under sudo is operator-readable" \
 check "and in rescue.target it is under /root" \
       "/root/.local/share/jol-fleet-health" \
       "$(operator_home 0 /root '')/.local/share/jol-fleet-health"
+
+echo ""
+echo "=== group 7: ownership handover must never re-own a directory it does not own ==="
+# This is the control-defeat vector found in review. The first version ran
+#   chown "$SUDO_USER:" "$WIN_DIR" "$OUT"
+# on a caller-controlled WIN_DIR, so
+#   WIN_DIR=/var/lib/jol-workstation sudo DRY_RUN=0 jol-write-bench.sh
+# would have chowned the privileged artifact directory (700 root:root on this host) to
+# uid 1000 — dismantling the very untraversability that makes the custody and backup-proof
+# gates report UNVERIFIED rather than pretend to know. Silent, and no error anywhere.
+check "privileged dir outside home is NOT re-owned" \
+      "FILE_ONLY_WARN" "$(handover_verdict 0 jol /var/lib/jol-workstation /home/jol)"
+check "the default location may be handed over" \
+      "FILE_AND_DIR"   "$(handover_verdict 0 jol /home/jol/.local/share/jol-fleet-health /home/jol)"
+# Prefix discipline: /home/jol is a prefix of /home/jolevil as a STRING, but must not count
+# as "inside the home". A case pattern without the slash would hand over a sibling tree.
+check "a sibling whose name starts with the home is not inside it" \
+      "FILE_ONLY_WARN" "$(handover_verdict 0 jol /home/jolevil/.local /home/jol)"
+check "the home itself, not a path under it, is not re-owned" \
+      "FILE_ONLY_WARN" "$(handover_verdict 0 jol /home/jol /home/jol)"
+check "a plain user run hands nothing over" \
+      "NO_HANDOVER"    "$(handover_verdict 1000 jol /home/jol/.local /home/jol)"
+# sudo -s / sudo bash can leave SUDO_USER=root; re-owning to root would be a no-op at best
+# and a false sense of handover at worst.
+check "root invoking as root hands nothing over" \
+      "NO_HANDOVER"    "$(handover_verdict 0 root /root/.local /root)"
+check "root with no SUDO_USER hands nothing over" \
+      "NO_HANDOVER"    "$(handover_verdict 0 '' /root/.local /root)"
+check "a missing home is treated as outside, not as a wildcard" \
+      "FILE_ONLY_WARN" "$(handover_verdict 0 jol /var/lib/jol-workstation '')"
 
 echo ""
 echo "write-bench fixtures: $PASS passed, $FAILED failed"

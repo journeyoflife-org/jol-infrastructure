@@ -15,7 +15,14 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$HERE/../install-workstation-scripts.sh"
-REPO="$(cd "$HERE/../.." && pwd)"
+# Three levels, not two: tests -> maintenance -> scripts -> REPO ROOT. With ../.. this
+# resolved to .../scripts, where `git rev-parse HEAD:<path>` still worked (git walks upward
+# to find .git and HEAD: is root-relative) but `git hash-object <relative-path>` looked for
+# .../scripts/scripts/maintenance/… and returned an EMPTY string. The dirty comparison then
+# concluded "clean" in the permissive direction and demanded exit 0 from an installer that
+# was correctly refusing — a wrong expectation that only failed loudly because group 5 asserts
+# exact counts instead of "any non-zero rc".
+REPO="$(cd "$HERE/../../.." && pwd)"
 
 PASS=0; FAILED=0
 TMP_OUT="$(mktemp)"
@@ -54,6 +61,7 @@ echo "=== group 2: every manifest target must resolve in HEAD at its real path =
 # "a guard that cannot check looks like a guard that passed" failure being tested for.
 # tr is used rather than an awk gsub because the character class kept arriving mangled.
 mapfile -t PAIRS < <(awk '/^    "[a-z0-9-]+\.sh\|/' "$TARGET" | tr -d ' "')
+check "REPO resolves to the git root, not a subdirectory" "$REPO" "$(git -C "$REPO" rev-parse --show-toplevel)"
 check "manifest is not empty (a silently empty loop tests nothing)" "1" "$([[ ${#PAIRS[@]} -gt 0 ]] && echo 1 || echo 0)"
 UNCOMMITTED=0; BADMODE=0; BADNAME=0; BADHASH=0; EXPECTED_DIRTY=0; N=0
 for pair in "${PAIRS[@]}"; do
@@ -67,6 +75,13 @@ for pair in "${PAIRS[@]}"; do
         bad "HEAD lookup for $src is not a 40-hex blob id: [$hh]"; BADHASH=$((BADHASH + 1)); UNCOMMITTED=$((UNCOMMITTED + 1))
     fi
     wh="$(git -C "$REPO" hash-object "scripts/maintenance/$src" 2>/dev/null || true)"
+    # An empty worktree hash means the PATH WAS WRONG, not that the file is clean. Rendering
+    # "could not measure" as "measured equal" is the silent-pass class, and it is what made
+    # this suite demand exit 0 from an installer that was correctly refusing.
+    if [[ -z "$wh" ]]; then
+        bad "hash-object returned nothing for $src — wrong path, not a clean file"
+        BADHASH=$((BADHASH + 1))
+    fi
     if [[ -n "$hh" && -n "$wh" && "$hh" != "$wh" ]]; then EXPECTED_DIRTY=$((EXPECTED_DIRTY + 1)); fi
     # The mode must be one of the two documented values; anything else means a new entry
     # was added without deciding whether its read-only path is reachable.
@@ -134,12 +149,22 @@ echo "=== group 5: integration — the guard must ENGAGE, and refuse ONLY what i
 # installer refused ALL SIX — including the clean ones — with a nonsense head= value. My first
 # version of this group accepted any non-zero rc as "the guard working", so it passed over a
 # mutant that broke the guard completely. The refusal count must be predicted independently.
-# DRY_RUN=1 is the default and touches nothing outside the repo.
-bash "$TARGET" > "$TMP_OUT" 2>&1
+# DRY_RUN=1 is the default and touches nothing outside the repo — but "default" is not a
+# guarantee. The first version of this line inherited the environment, so `DRY_RUN=0
+# make test-gates`, or the same suite run by root in a future CI step, would have EXECUTED
+# the installer and written six files into /usr/local/bin from inside a test. Both the mode
+# and the destination are now pinned, and the destination is asserted to have stayed empty.
+TMP_BIN="$(mktemp -d)"
+DRY_RUN=1 BIN_DIR="$TMP_BIN" bash "$TARGET" > "$TMP_OUT" 2>&1
 INTEG_RC=$?
 NPLANNED="$(grep -c 'DRY  : install -m' "$TMP_OUT")"
+NAPPLIED="$(grep -c 'APPLY: install' "$TMP_OUT")"
 NREFUSED="$(grep -c 'FAIL: .*differs from HEAD' "$TMP_OUT")"
 NTOT=${#PAIRS[@]}
+
+check "the test never executed an install (no APPLY lines)" "0" "$NAPPLIED"
+check "the pinned BIN_DIR stayed empty" "0" "$(find "$TMP_BIN" -mindepth 1 | wc -l)"
+rmdir "$TMP_BIN" 2>/dev/null || true
 
 # Expected refusals are computed above from git itself, not from the installer's output.
 if [[ "$EXPECTED_DIRTY" -eq 0 ]]; then

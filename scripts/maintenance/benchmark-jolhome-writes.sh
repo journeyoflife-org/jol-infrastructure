@@ -63,7 +63,13 @@ if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; t
     # getent, not "/home/$SUDO_USER": the operator's home is whatever passwd says it is.
     _SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
 fi
-WIN_DIR="${WIN_DIR:-$(operator_home "$(id -u)" "$HOME" "$_SUDO_HOME")/.local/share/jol-fleet-health}"
+_OP_HOME="$(operator_home "$(id -u)" "$HOME" "$_SUDO_HOME")"
+WIN_DIR="${WIN_DIR:-$_OP_HOME/.local/share/jol-fleet-health}"
+# HANDOVER is computed later, after handover_verdict() is defined. Calling a function
+# before bash has seen its definition does not raise a visible error here: the command
+# substitution captures the empty string and exits 127, so the case statement that acts
+# on the verdict would match NO branch and the ownership warning would silently disappear
+# — the warning vanishing exactly when an operator points WIN_DIR somewhere it should not.
 PROBE="$STAGING/.wtest"
 
 FAILURES=0
@@ -71,6 +77,45 @@ say()  { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 info() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 alert() { printf '[%s] ALERT: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; FAILURES=$((FAILURES+1)); }
 die()  { printf '[%s] ABORT: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; exit 2; }
+
+# -----------------------------------------------------------------------------
+# handover_verdict — may this run change OWNERSHIP, and of what?
+#
+# Why this exists as a separate decision: the first version of the handover ran
+#   chown "$SUDO_USER:" "$WIN_DIR" "$OUT"
+# on a WIN_DIR the caller controls entirely through the environment. That turns a
+# convenience into a control-defeat primitive:
+#
+#   WIN_DIR=/var/lib/jol-workstation sudo DRY_RUN=0 jol-write-bench.sh
+#
+# would chown the privileged artifact directory — measured on this host `700 root:root` —
+# over to uid 1000. That directory's untraversability is exactly what makes the custody
+# gate and the Phase 0 backup-proof gate report "UNVERIFIED, not absent" instead of
+# pretending to know; handing it to the operator would have quietly dismantled that, from
+# a benchmark script, with no error anywhere.
+#
+# The rule, which is deliberately boring:
+#   - a file this run created may always be handed over — it is ours;
+#   - a DIRECTORY's ownership is changed only when it lies inside the operator's own home,
+#     where the operator already owns the parent and nothing can be weakened;
+#   - anywhere else, ownership is left alone and the operator is told to use sudo.
+#
+#   $1 uid  $2 sudo_user  $3 win_dir  $4 operator_home
+# -----------------------------------------------------------------------------
+handover_verdict() {
+    local uid="${1:-1}" su="${2:-}" dir="${3:-}" home="${4:-}"
+    if [[ "$uid" != "0" || -z "$su" || "$su" == "root" ]]; then printf 'NO_HANDOVER\n';  return 0; fi
+    # An empty home would make the pattern below "/*", which matches EVERY absolute path and
+    # would authorise re-owning any directory on the host. operator_home never returns empty,
+    # but a decision this consequential must not rest on the caller's discipline — it is
+    # measured, and it was wrong: this branch returned FILE_AND_DIR for /var/lib/* until a
+    # fixture written to prove the guard safe caught it.
+    [[ -n "$home" ]] || { printf 'FILE_ONLY_WARN\n'; return 0; }
+    case "$dir" in
+        "$home"/*) printf 'FILE_AND_DIR\n'; return 0 ;;
+        *)         printf 'FILE_ONLY_WARN\n' ;;
+    esac
+}
 
 # -----------------------------------------------------------------------------
 # plateau_summary — the whole judgement, as a PURE FUNCTION so it can be tested
@@ -158,6 +203,7 @@ if [[ "$IS_MOUNT" == "yes" ]]; then
 fi
 EXTRA="$(find "$STAGING" -mindepth 1 -maxdepth 1 ! -name lost+found ! -name '.wtest' 2>/dev/null | wc -l)"
 TVERDICT="$(target_verdict "$IS_MOUNT" "$SAME_AS_ROOT" "$SRC" "$EXTRA")"
+HANDOVER="$(handover_verdict "$(id -u)" "${SUDO_USER:-}" "$WIN_DIR" "$_OP_HOME")"
 info "  target: mount=$IS_MOUNT off-disk=$([ "$SAME_AS_ROOT" = no ] && echo yes || echo no) source='${SRC:-none}' extra_entries=$EXTRA"
 
 if [[ "$DRY_RUN" == "1" ]]; then
@@ -170,6 +216,10 @@ if [[ "$DRY_RUN" == "1" ]]; then
     esac
     printf 'DRY  : would write %s GiB as %s sequential 1 GiB direct steps to %s\n' "$SIZE_GIB" "$SIZE_GIB" "$PROBE"
     printf 'DRY  : per-interval samples to %s\n' "$WIN_DIR/write-bench-<utc>.tsv"
+    # The handover decision is printed in the PLAN, not only after the fact: an operator
+    # pointing WIN_DIR at a privileged directory must see that ownership will NOT be
+    # changed there before 32 GiB has been written, not after.
+    printf 'DRY  : ownership handover: %s (WIN_DIR=%s, operator home=%s)\n' "$HANDOVER" "$WIN_DIR" "$_OP_HOME"
     # The path is printed as RESOLVED, not as an expression: under sudo an operator must be
     # able to see at a glance that the evidence will land in their own home, not in /root.
     printf 'DRY  : running as uid %s (%s)%s\n' "$(id -u)" "$(id -un)" \
@@ -194,16 +244,24 @@ OUT="$WIN_DIR/write-bench-$(date -u +%Y%m%dT%H%M%SZ).tsv"
 printf '# elapsed_s\tinterval_rate_MiBps\tpart MiB\tof %s GiB\n' "$SIZE_GIB" > "$OUT" \
     || die "cannot write $OUT"
 
-# Hand the evidence to the operator when it was written by root. Without this the file
-# is 644 but sits under a 700 /root or a root-owned directory, so --report run without
-# root still cannot see it — the failure above would merely have moved location.
-if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-    if chown "$SUDO_USER:" "$WIN_DIR" "$OUT" 2>/dev/null; then
-        say "evidence handed to ${SUDO_USER}: $(stat -c '%U:%G %a' "$OUT")"
-    else
-        alert "could not chown $OUT to ${SUDO_USER} — read it with sudo, --report will not find it"
-    fi
-fi
+# Act on the handover verdict computed above. The file is always ours to hand over; the
+# directory is only ours to re-own when it sits inside the operator's home.
+case "$HANDOVER" in
+    NO_HANDOVER)
+        ;;
+    FILE_AND_DIR)
+        if chown "$SUDO_USER:" "$WIN_DIR" "$OUT" 2>/dev/null; then
+            say "evidence handed to ${SUDO_USER}: $(stat -c '%U:%G %a' "$OUT") (dir too: $WIN_DIR)"
+        else
+            alert "could not chown $OUT to ${SUDO_USER} — read it with sudo, --report will not find it"
+        fi
+        ;;
+    FILE_ONLY_WARN)
+        chown "$SUDO_USER:" "$OUT" 2>/dev/null \
+            || alert "could not chown $OUT to ${SUDO_USER}"
+        alert "WIN_DIR $WIN_DIR is outside ${SUDO_USER}'s home — its ownership was NOT changed, deliberately: this script does not re-own directories it does not own the parent of. --report will not find the evidence there; read it with sudo, or leave WIN_DIR unset."
+        ;;
+esac
 
 # Always remove the test file, even on interruption: leaving 32 GiB on a volume that
 # Phase 2 must copy into would change the very capacity the cutover preflight checks.
