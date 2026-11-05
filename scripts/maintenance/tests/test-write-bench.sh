@@ -203,6 +203,51 @@ check "a missing home is treated as outside, not as a wildcard" \
       "FILE_ONLY_WARN" "$(handover_verdict 0 jol /var/lib/jol-workstation '')"
 
 echo ""
+echo "=== group 8: the CALL SITE must obey the verdict, not just the function ==="
+# handover_verdict() can be perfectly correct while the script ignores it — which is exactly
+# what shipped: one unconditional `chown "$SUDO_USER:" "$WIN_DIR" "$OUT"` that happened to
+# sit near the verdict but did not consult it. A fixture on the pure function alone cannot
+# see that, so the call site's shape is asserted directly.
+SHAPE="$(awk '
+  /^case "\$HANDOVER" in/ { f=1 }
+  f {
+    if ($0 ~ /^    [A-Z_]+\)$/) {
+      if (b != "") printf "%s:%s ", b, s
+      b = $0; gsub(/[) ]/, "", b); s = "none"
+    }
+    if ($0 ~ /chown/ && $0 !~ /alert/) {
+      if ($0 ~ /WIN_DIR/) s = (s == "file") ? "dir+file" : "dir"
+      if ($0 ~ /OUT/)     s = (s == "dir")  ? "dir+file" : "file"
+    }
+  }
+  END { if (b != "") printf "%s:%s ", b, s }
+' "$TARGET" | sed 's/ $//')"
+check "only FILE_AND_DIR may re-own the directory" \
+      "NO_HANDOVER:none FILE_AND_DIR:dir+file FILE_ONLY_WARN:file" "$SHAPE"
+# The shipped bug, as a negative control: with no case block at all, SHAPE is empty and the
+# assertion above fails. Verified against d4234c0 directly: that version yields SHAPE="" and
+# one live chown instead of two, so both checks below discriminate good from bad.
+#
+# A third check was written here and deleted in review: it grepped for an indented
+# `if chown "$SUDO_USER:" "$WIN_DIR" "$OUT"` to detect an unguarded chown — but the CORRECT
+# code contains exactly that string inside the FILE_AND_DIR branch, so it failed on good
+# code. An assertion that fires on the fixed version is not a guard; it is noise that trains
+# the operator to ignore the suite.
+# SC2016 is expected on the next two statements: the patterns match LITERAL shell text
+# ($SUDO_USER, $HANDOVER) inside the script under test. Expanding them would match nothing
+# and the assertions would pass vacuously. A shellcheck directive covers only the statement
+# that follows it, so it is repeated rather than assumed to span the block.
+# shellcheck disable=SC2016
+LIVECHOWN="$(grep -vE '^\s*#' "$TARGET" | grep -c 'chown "\$SUDO_USER:"')"
+check "exactly two live chown statements (one per handover branch that acts)" "2" "$LIVECHOWN"
+# shellcheck disable=SC2016
+if grep -q 'case "\$HANDOVER" in' "$TARGET"; then
+    ok "the call site consults the verdict at all"
+else
+    bad "the call site never branches on HANDOVER — the verdict is decorative"
+fi
+
+echo ""
 echo "write-bench fixtures: $PASS passed, $FAILED failed"
 [[ "$FAILED" -eq 0 ]] || exit 1
 exit 0
