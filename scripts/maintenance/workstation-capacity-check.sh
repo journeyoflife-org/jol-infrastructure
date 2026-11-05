@@ -73,6 +73,19 @@ INODE_ALERT_PCT="${INODE_ALERT_PCT:-90}"
 # Fill-rate early warning: alert if free space dropped more than this many percentage
 # points since the previous run, even if the absolute level is still comfortable.
 TREND_DROP_PCT="${TREND_DROP_PCT:-10}"
+# Percentage POINTS are coarse: one point on a 93 GiB partition is ~930 MiB, so a slow
+# fill is invisible to the rule above for hours. These two govern the MiB-resolution rate
+# added below, which is what actually answers "how long until this is full".
+TREND_HOURS_TO_FULL="${TREND_HOURS_TO_FULL:-72}"
+# A shift smaller than this is measurement noise between two runs, not a trend.
+TREND_DROP_MIB="${TREND_DROP_MIB:-512}"
+# Time-to-full projection is a WARN-only judgement by default: it extrapolates one
+# interval onto a filesystem whose usage is bursty by nature (an IDE index, a browser
+# cache refill, a git gc). Alerting CRITICAL on a projection would be crying wolf with
+# a number that looks more precise than it is, which is how hv01's 415 false alerts were
+# produced. Set to 1 to promote it to CRITICAL once the rate has been observed long
+# enough to trust.
+TREND_PROJECT_ALERTS="${TREND_PROJECT_ALERTS:-0}"
 # Gate 5 — off-device backup ARTIFACT freshness. Gate 2 proves the mount is real; this
 # proves something was actually WRITTEN there recently. On 2026-11-04 both were needed:
 # the mount was absent AND the newest Terraform state snapshot was 4 days old, and only
@@ -112,6 +125,33 @@ done
 LOG_DIR="${LOG_DIR:-$HOME/.local/share/jol-fleet-health}"
 LOG="$LOG_DIR/capacity.log"
 STATE="$LOG_DIR/capacity-state"          # last reading per mount -> trend + liveness
+# When STATE was written. The MiB reading in STATE is meaningless as a RATE without the
+# interval it was measured across, and the state line's own format carries no timestamp.
+STATE_TS="$LOG_DIR/capacity-state-ts"
+# MiB-resolution history, one row per mount per run. This file is the actual point of the
+# change: `capacity.log` prints GiB because that is what a human scanning a log wants, and
+# 8 GiB vs 8 GiB tells you nothing about a fill rate. Asserting a rate from it earlier in
+# this thread produced a number ('~3.4 GiB/day') that the stored data could not support.
+# To MEASURE that number instead of remembering it:
+#   awk -F'\t' -v m=/home '
+#     $2==m { n++; if (!f) { f=$1; hi=$3 }; lo=$3; last=$1 }
+#     END {
+#       if (n < 2)  { printf "%s: need >= 2 samples to bound a rate\n", m; exit 1 }
+#       h = (last - f) / 3600
+#       if (h < 1)  { printf "%s: only %.3f h of history, too short to extrapolate\n", m, h; exit 1 }
+#       d = (hi - lo) / 1024
+#       if (d <= 0) { printf "%s: %.2f GiB GAINED over %.1f h, not filling\n", m, -d, h; exit 0 }
+#       printf "%s: %.2f GiB/day over %.1f h\n", m, d/(h/24), h
+#     }' "$SAMPLES"
+# Every refusal EXITS NON-ZERO on purpose. Two mistakes were made in the first draft of
+# this snippet and both were caught only by RUNNING it against the real file: it divided
+# by a zero-length window and printed "-nan GiB/day" with rc=0, and it wrapped one printf
+# across two lines, which is not valid awk inside a single-line { ...; } block and made
+# every branch die with a parse error. A number computed from nothing must be impossible
+# to read as a result — and a helper embedded in documentation has to be executed, not
+# assumed to parse.
+SAMPLES="$LOG_DIR/capacity-samples.tsv"
+SAMPLE_KEEP="${SAMPLE_KEEP:-20000}"
 STAMP="$LOG_DIR/capacity-last-run"       # last run time -> gate 3
 SIG_FILE="$LOG_DIR/capacity-last-alert"  # alert set already notified
 NOTIFY="${NOTIFY:-1}"
@@ -240,10 +280,24 @@ fi
 # drops out of the census. Pseudo-filesystems are excluded by fstype, not by name
 # guessing.
 declare -A PREV_PCT=()
+declare -A PREV_AVAIL=()
+NOW_EPOCH="$(date -u +%s)"
+# The previous run's timestamp, not this one's: gate 3 has already read and will
+# re-write $STAMP. Absent or unparseable means the interval is unknown, and an unknown
+# interval means no rate may be computed at all — a division by a zero-length window is
+# not a slow fill, it is a lie.
+PREV_TS=""
+if [[ -r "$STATE_TS" ]]; then
+    PREV_TS="$(tr -cd '0-9' < "$STATE_TS" 2>/dev/null || true)"
+fi
 if [[ -r "$STATE" ]]; then
     while read -r _m _av pct || [[ -n "${_m:-}" ]]; do
         case "$_m" in ''|\#*) continue ;; esac
         PREV_PCT["$_m"]="$pct"
+        # Column 2 was already being measured and DISCARDED here (read into `_av` and
+        # never used). The MiB figure was in the state file all along; only the log line
+        # had thrown the precision away.
+        PREV_AVAIL["$_m"]="$_av"
     done < "$STATE"
 fi
 
@@ -319,6 +373,53 @@ else
             fi
         fi
 
+        # gate 4b: the MiB-resolution rate, and the time-to-full it implies.
+        # Everything here is gated on an interval being KNOWN. With no readable
+        # $STATE_TS there is no rate — and every pre-existing fixture supplies a STATE
+        # baseline without one, so this block must stay inert for them rather than
+        # invent a division. Note the reason that matters: the state file's MiB column is
+        # only a rate once you know how long the delta was observed over.
+        rate_lost='' ; rate_day='' ; rate_hours='' ; rate_span=0
+        # One [[ ]] compound, not two joined with a leading && on the next line: bash
+        # parses `if [[ a ]]<newline>&& [[ b ]]; then` as a complete (and invalid) if,
+        # which is a syntax error that takes the whole script down, not a soft miss.
+        if [[ -n "$PREV_TS" && "$PREV_TS" != '0' && -n "${PREV_AVAIL[$mnt]:-}" \
+              && "${PREV_AVAIL[$mnt]}" != *[!0-9]* ]]; then
+            rate_span=$(( (NOW_EPOCH - PREV_TS) / 60 ))
+            if (( rate_span >= 1 )); then
+                rate_lost=$(( PREV_AVAIL[$mnt] - avail_mib ))
+                if (( rate_lost > 0 )); then
+                    rate_day=$(( rate_lost * 1440 / rate_span ))
+                    if (( avail_mib <= 0 )); then
+                        rate_hours=0
+                    else
+                        rate_hours=$(( avail_mib * rate_span / rate_lost / 60 ))
+                    fi
+                fi
+            fi
+        fi
+        if [[ -n "$rate_day" && "$rate_day" != '0' && -n "$rate_lost" && "$rate_lost" != '0' ]]; then
+            rate_msg="gate 4: $mnt filling at ${rate_day} MiB/day — ${rate_lost} MiB over ${rate_span} min, ${avail_mib} MiB left, ≈${rate_hours} h to full at this rate"
+            if (( rate_hours < TREND_HOURS_TO_FULL )); then
+                # Deliberately a WATCH, not a CRITICAL, unless explicitly promoted: a
+                # projection from a single interval over bursty usage is the least
+                # trustworthy number this script emits, and a confident wrong number is
+                # worse than no number.
+                if [[ "$TREND_PROJECT_ALERTS" == "1" ]]; then
+                    reasons+=("projected full in ${rate_hours} h (< ${TREND_HOURS_TO_FULL} h) at ${rate_day} MiB/day")
+                else
+                    warn "$rate_msg"
+                fi
+            else
+                info "$rate_msg"
+            fi
+        elif [[ -n "$rate_lost" ]] && (( rate_lost < 0 )); then
+            rate_gain=$(( -rate_lost ))
+            if (( rate_gain >= TREND_DROP_MIB )); then
+                info "gate 4: $mnt gained ${rate_gain} MiB over ${rate_span} min"
+            fi
+        fi
+
         if (( ${#reasons[@]} > 0 )); then
             verdict="$(printf '%s; ' "${reasons[@]}")"
             verdict="${verdict%; }"
@@ -354,6 +455,11 @@ else
         esac
 
         [[ -n "$NEW_STATE" ]] && printf '%s %s %s\n' "$mnt" "$avail_mib" "$used_pct" >>"$NEW_STATE"
+        # The machine-readable history. GiB in a human log cannot express a fill rate;
+        # this can, and it is the artifact that makes a claim like "~3.4 GiB/day" either
+        # checkable or falsifiable instead of remembered.
+        printf '%s\t%s\t%s\t%s\n' "$NOW_EPOCH" "$mnt" "$avail_mib" "$used_pct" \
+            >>"$SAMPLES" 2>/dev/null || true
     done <"$ROWS"
     rm -f "$ROWS" 2>/dev/null || true
 
@@ -367,6 +473,23 @@ fi
 # Publish state atomically for the next run's trend + liveness comparison.
 if [[ -n "$NEW_STATE" && -s "$NEW_STATE" ]]; then
     mv "$NEW_STATE" "$STATE" 2>/dev/null || info "could not publish $STATE (filesystem full?) — next run loses the trend baseline"
+    # Published WITH the state, never after it. A timestamp newer or older than the
+    # readings it describes turns every rate below into a fiction, and the two files can
+    # only be made consistent by writing the pair together.
+    printf '%s\n' "$NOW_EPOCH" >"$STATE_TS" 2>/dev/null \
+        || info "could not publish $STATE_TS — the next run loses the fill-rate interval"
+fi
+
+# Bound the sample history. A 15-minute timer across ~12 mounts is ~35k rows a week; an
+# unbounded append-only file is a slow-motion version of the exact failure this watchdog
+# was built to catch.
+if [[ -r "$SAMPLES" ]]; then
+    _samples_now="$(grep -c '' "$SAMPLES" 2>/dev/null || echo 0)"
+    if [[ "$_samples_now" != *[!0-9]* ]] && (( _samples_now > SAMPLE_KEEP )); then
+        tail -n $(( SAMPLE_KEEP / 2 )) "$SAMPLES" >"$SAMPLES.trim" 2>/dev/null \
+            && mv "$SAMPLES.trim" "$SAMPLES" 2>/dev/null || rm -f "$SAMPLES.trim" 2>/dev/null || true
+        info "gate 1: trimmed $SAMPLES from ${_samples_now} to ~$(( SAMPLE_KEEP / 2 )) rows"
+    fi
 fi
 printf '%s\n' "$(date -u +%FT%TZ)" >"$STAMP" 2>/dev/null || \
     alert "gate 3: cannot write run stamp to $STAMP — self-liveness will be UNVERIFIED on the next run"

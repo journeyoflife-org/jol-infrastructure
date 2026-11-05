@@ -82,6 +82,7 @@ mk_census() { # pairs of "device size avail pct mount"
 # which shellcheck cannot see across the `.` — they are reachable.
 # shellcheck disable=SC2317
 run_gate() { # $1=census text  $2=inode pct for the last mount  $3=optional STATE baseline
+             # $4=optional epoch for STATE_TS (the fill-rate interval)
     (
         ALERTS=0
         ALERT_TEXTS=()
@@ -93,6 +94,17 @@ run_gate() { # $1=census text  $2=inode pct for the last mount  $3=optional STAT
         # shellcheck disable=SC2034
         LOG_DIR="$WORK"
         STATE="$WORK/state"
+        # Assigned by the script's config block, which is OUTSIDE the extracted range, so
+        # the fixture must bind them or `set -u` aborts the whole sourced block — which
+        # presents as every fixture failing at once, not as one missing binding.
+        STATE_TS="$WORK/state-ts"
+        if [[ -n "${4:-}" ]]; then printf '%s\n' "$4" >"$STATE_TS"; else rm -f "$STATE_TS"; fi
+        SAMPLES="$WORK/samples.tsv"
+        rm -f "$SAMPLES"
+        # Consumed only by the sourced gate text, across the `.` — the same binding rule
+        # as LOG_DIR above. Directive must be its own line, not a continuation comment.
+        # shellcheck disable=SC2034
+        SAMPLE_KEEP=20000
         if [[ -n "${3:-}" ]]; then printf '%s\n' "$3" >"$STATE"; else rm -f "$STATE"; fi
         CAP_ALERT_PCT="${CAP_ALERT_PCT:-90}"
         CAP_MIN_FREE_MIB="${CAP_MIN_FREE_MIB:-4096}"
@@ -103,6 +115,9 @@ run_gate() { # $1=census text  $2=inode pct for the last mount  $3=optional STAT
         CAP_FLOOR_SIZE_PCT="${CAP_FLOOR_SIZE_PCT:-20}"
         INODE_ALERT_PCT="${INODE_ALERT_PCT:-90}"
         TREND_DROP_PCT="${TREND_DROP_PCT:-10}"
+        TREND_HOURS_TO_FULL="${TREND_HOURS_TO_FULL:-72}"
+        TREND_DROP_MIB="${TREND_DROP_MIB:-512}"
+        TREND_PROJECT_ALERTS="${TREND_PROJECT_ALERTS:-0}"
         FIX_CENSUS="$1"
         FIX_INODE="$2"
         df() {
@@ -451,6 +466,84 @@ if grep -vE '^[[:space:]]*#' "$SRC" | grep -qE 'secrets|\.env|vault|token'; then
     report_bad 'no secret-path access' 'no secrets/.env/vault/token in executable lines' 'found one'
 else
     report_ok 'gate reads filesystem statistics only — Tier-1 forbidden paths never opened'
+fi
+
+echo
+echo "--- 12 (FILL RATE): MiB-resolution trend, which a GiB log cannot express -----------"
+# Equality helper for exact numeric fields; expect_* match substrings, which would let
+# '4' pass inside '14'.
+check_eq() { if [[ "$2" == "$3" ]]; then report_ok "$1"; else report_bad "$1" "$2" "$3"; fi; }
+# The originating defect: `capacity.log` prints whole GiB, so six runs over 79 minutes all
+# read "8 GiB free" and no fill rate could be substantiated from it — a rate of ~3.4 GiB/day
+# had been asserted from memory and was not supportable. These fixtures pin the behaviour
+# that makes it measurable instead.
+NOW_S="$(date -u +%s)"
+ONE_H_AGO=$(( NOW_S - 3600 ))
+# avail 85,937 MiB now vs 90,000 MiB in state: 4,063 MiB lost over 60 min.
+FR_CENSUS="$(mk_census /dev/nvme0n1p7 96468992 8400000 88000000 9 /home)"
+FR_STATE='/home 90000 8'
+O12a="$(run_gate "$FR_CENSUS" 19 "$FR_STATE" "$ONE_H_AGO")"
+expect_text 'fill rate is reported in MiB/day' 'MiB/day' "$O12a"
+expect_text 'fill rate reports the remaining time to full' 'h to full' "$O12a"
+# Default posture: a projection is a WATCH. Promoting it to CRITICAL on one interval of
+# bursty usage is how a watchdog earns to be ignored.
+expect_counts 'projected fill -> WARN only, no CRITICAL by default' 'alerts=0' "$O12a"
+O12b="$(TREND_PROJECT_ALERTS=1 run_gate "$FR_CENSUS" 19 "$FR_STATE" "$ONE_H_AGO")"
+expect_text 'projection can be promoted to CRITICAL when asked' 'projected full in' "$O12b"
+expect_counts 'promoted projection -> exactly one CRITICAL' 'alerts=1' "$O12b"
+
+# No interval means no rate. This is what keeps every pre-existing fixture (which passes a
+# STATE baseline but never a timestamp) from silently gaining a new alert.
+O12c="$(run_gate "$FR_CENSUS" 19 "$FR_STATE")"
+expect_absent 'no STATE_TS -> no rate invented' 'MiB/day' "$O12c"
+expect_counts 'no STATE_TS -> verdict unchanged from before this gate' 'alerts=0' "$O12c"
+
+# A zero-length interval must not divide, and must not print a confident number either.
+O12d="$(run_gate "$FR_CENSUS" 19 "$FR_STATE" "$NOW_S")"
+expect_absent 'zero-length interval -> no rate emitted' 'MiB/day' "$O12d"
+# These two lines are what makes the span guard testable. Without them a mutant that
+# deletes `rate_span >= 1` survives: the division by zero aborts the assignment BEFORE
+# any MiB/day text is produced, so absence-of-output alone cannot tell a working guard
+# from a missing one. The error must be caught, not merely suppressed.
+expect_absent 'zero-length interval -> no division-by-zero leaked' 'division by 0' "$O12d"
+expect_absent 'zero-length interval -> no arithmetic error leaked' 'syntax error' "$O12d"
+expect_counts 'zero-length interval -> clean, not silently skipped' 'alerts=0' "$O12d"
+O12e="$(run_gate "$FR_CENSUS" 19 "$FR_STATE" 'garbage-not-an-epoch')"
+expect_absent 'unparseable interval -> inert, not a crash' 'MiB/day' "$O12e"
+expect_absent 'unparseable interval -> no arithmetic error leaked' 'syntax error' "$O12e"
+O12f="$(run_gate "$FR_CENSUS" 19 '/home notanumber 8' "$ONE_H_AGO")"
+expect_absent 'non-numeric previous avail -> inert' 'MiB/day' "$O12f"
+# Without the numeric guard, arithmetic on 'notanumber' silently evaluates as 0, so the
+# delta becomes a huge GAIN and this gate would print "gained 85937 MiB" about a
+# filesystem that is filling. Asserting only the absence of MiB/day would let that pass.
+expect_absent 'non-numeric previous avail -> must not fabricate a gain' 'gained ' "$O12f"
+expect_absent 'non-numeric previous avail -> no arithmetic error' 'syntax error' "$O12f"
+expect_counts 'non-numeric previous avail -> no new CRITICAL either' 'alerts=0' "$O12f"
+
+# Recovery in MiB, and the sub-noise case the floor exists for. Both are stated as
+# gains: 88,000 MiB now vs 80,000 then is +8,000 (reported) and vs 87,800 then is +200
+# (below TREND_DROP_MIB, so silent).
+O12g="$(run_gate "$(mk_census /dev/nvme0n1p7 96468992 8400000 90112000 8 /home)" 19 '/home 80000 9' "$ONE_H_AGO")"
+expect_text 'space regained is reported in MiB' 'gained 8000 MiB' "$O12g"
+expect_counts 'recovery -> no CRITICAL' 'alerts=0' "$O12g"
+O12h="$(run_gate "$(mk_census /dev/nvme0n1p7 96468992 8400000 90112000 8 /home)" 19 '/home 87800 9' "$ONE_H_AGO")"
+expect_absent 'a 200 MiB gain is below the noise floor and stays silent' 'gained ' "$O12h"
+expect_counts 'sub-noise wobble -> clean' 'alerts=0' "$O12h"
+
+# The artifact itself: this is the thing that makes a rate computable at all.
+run_gate "$FR_CENSUS" 19 "$FR_STATE" "$ONE_H_AGO" >/dev/null
+if [[ -r "$WORK/samples.tsv" ]]; then
+    report_ok 'the MiB sample history is written'
+    cols="$(awk -F'\t' 'NR==1{print NF}' "$WORK/samples.tsv")"
+    check_eq 'sample row has 4 tab-separated fields' "4" "$cols"
+    check_eq 'sample row carries the MiB value, not GiB' "85937" "$(awk -F'\t' 'NR==1{print $3}' "$WORK/samples.tsv")"
+else
+    report_bad 'sample history written' 'a readable capacity-samples.tsv' 'missing'
+fi
+if [[ -r "$WORK/state-ts" ]]; then
+    report_ok 'the state timestamp is published with the state (an interval exists to pair it)'
+else
+    report_bad 'STATE_TS published' 'a readable state-ts' 'missing'
 fi
 
 echo
