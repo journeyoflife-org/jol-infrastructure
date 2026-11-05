@@ -1,13 +1,37 @@
 # =============================================================================
 # Pre-commit Auto-Update
-# Automatically updates pre-commit hook versions monthly
-# Creates a PR with the updated .pre-commit-config.yaml
+# Opens a PR when `pre-commit autoupdate` moves a pinned hook revision.
+#
+# ⚠ F-40 (measured 2026-11-05): this control has NEVER succeeded.
+#   42 runs fetched, 42 failures, 0 successes, 2026-07-13 -> 2026-11-05 (116 days),
+#   37 `schedule` + 5 `push`. Cause, verbatim from run 42043912718:
+#     "GitHub Actions is not permitted to create or approve pull requests."
+#   The `pull-requests: write` token permission below is correct and is NOT the
+#   problem: the repository/org setting *Allow GitHub Actions to create and approve
+#   pull requests* is off, and that setting OVERRIDES a workflow-level permission.
+#   Only the repository owner can flip it. Until then every run fails at the
+#   create-pull-request step and no hook revision has ever been updated here.
+#   See docs/audit/self-audit-control-effectiveness-20261105.md §3.
 # =============================================================================
 name: "Pre-commit Auto-Update"
 
 on:
   schedule:
-    # First Monday of every month at 06:00 UTC
+    # ⚠ F-40b: this is NOT "first Monday of every month", and the old comment said it was.
+    # `1-7 * 1` restricts BOTH day-of-month and day-of-week. Where both are restricted,
+    # POSIX cron — which GitHub Actions follows — fires when EITHER field matches, so this
+    # runs on every day 1-7 of the month AND on every Monday. Measured against the run
+    # history: 38 distinct run dates in 116 days (a monthly job would produce ~4), including
+    # four consecutive days 2026-10-04..10-07 and the Mondays 10-12, 10-19, 10-26.
+    # Roughly 10x the documented cadence, which is part of why 42 failures read as noise
+    # rather than as a broken control.
+    #
+    # Deliberately NOT "fixed" by adding an early-exit day-of-month guard: a scheduled job
+    # that exits 0 without doing its work reports a GREEN run that performed nothing, which
+    # is the same silent-pass class F-40 belongs to. Expressing "first Monday" needs either
+    # this cron plus a guard that FAILS (not skips) outside the window, or an owner decision
+    # to accept a weekly cadence and rename the workflow to match. Left to the owner with the
+    # comment made truthful instead — a wrong comment is the defect this audit is about.
     - cron: "0 6 1-7 * 1"
   workflow_dispatch:
 

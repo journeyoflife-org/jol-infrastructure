@@ -14,7 +14,14 @@ because infra-validate.yml skips docs-only merges entirely". Measured, that is W
 reasoning: `on.pull_request` carries no `paths:` filter, so a docs-only PR DID run 7 jobs
 (`gh api repos/.../commits/3e75689/check-runs` → 7 completed check runs). The real gaps were
 (1) no job ever invoked this checker — it was wired only into `make lint-changelog` and a
-pre-commit hook that has never been installed here, and (2) a direct push to `main` touching
+pre-commit hook that did not exist AT THE TIME. That claim is now dated rather than permanent,
+because it was written as one and outlived its truth by about five minutes: `.git/hooks/pre-commit`
+was measured absent at 2026-11-01T16:31Z and created at 16:35:52Z the same day (mtime, host clock
+EET=UTC+2). Finding F-42 records the six other places that inherited "has never been installed" as
+a timeless property. Rule adopted here: a mutable state is cited with the instant it was observed
+and the command that re-checks it, never as "has never".
+
+The second gap, unchanged: (2) a direct push to `main` touching
 only docs/CHANGELOG triggers no pipeline, because `on.push.paths` omitted them. Both are closed
 in `infra-validate.yml` (job `changelog-guard` + widened push paths).
 
