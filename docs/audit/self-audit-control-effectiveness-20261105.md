@@ -469,10 +469,10 @@ The engineering discipline in this repository is genuinely good, and I want to b
 **Residual risk if nothing changes.** The next dead control also goes unnoticed for four months. The next stale claim also propagates into six files, including new code written by a second session that copied it from a neighbouring comment. And the next branch also accumulates dozens of commits that no pipeline ever ran — with the first CI execution happening on the merge to `main`, which is precisely the moment a failure is most expensive and least attributable.
 
 **What to do next**
-1. Do §13 items 1 and 2 today. They are minutes each, they need one human decision, and they convert most of this document from *risk* into *backlog*.
+1. Do §13 items 1 and 2 today. They are minutes each, they need one human decision, and they convert most of this document from *risk* into *backlog*. _(scope of item 2 re-measured — see §15 R-2)_
 2. Authorise §13 items 3, 6, 7, 12 as one scoped commit — they are collision-free, measured, and each removes a false statement from a file an auditor reads.
 3. Then build §11's `test-doc-claims.sh`. That is the item that makes the other twelve unnecessary to repeat, and it belongs in the same fixture family as the 370 assertions that already work.
-4. Run the owner window (§12) whenever the password and passphrase are to hand. It is independent of everything above and is the only path that closes D-2.
+4. Run the owner window (§12) whenever the password and passphrase are to hand. It is independent of everything above and is the only path that closes D-2. _(**SUPERSEDED — this sentence is false; see §15 R-1.**)_
 
 ---
 
@@ -489,3 +489,126 @@ The engineering discipline in this repository is genuinely good, and I want to b
 | Finding-ID collision | `git grep -ohIE 'F-[0-9]{1,3}'` over tracked files | highest in use is F-37 → this batch uses F-40…F-47 |
 
 ⚠ By F-44, **none of these ran automatically.** The hook fires on this file and inspects something else; no CI job runs the stamp gate at all. Every check above was invoked by hand, which is the finding.
+
+---
+
+## 15. ERRATUM, added 2026-11-06 — three corrections to this audit, one finding it missed
+
+Re-measured a day later, prompted by asking whether the "what to do next" advice in §3, §4 and §14 was
+itself correct. It was not, in three respects — and the failure mode is the one this whole document is
+about: an assertion written once and never re-measured. §14 claimed the audit's own probes were held to
+the honesty rules in §1; that holds for the **measurements**, but none of the **recommendations** was
+ever re-checked against the sources it described.
+
+### R-1 (HIGH) — "steps 1–3 are the only path that closes D-2" is FALSE
+
+The runbook says the opposite, in the document this session authored and verified on 2026-11-05:
+
+```
+docs/runbooks/workstation-owner-window.md:4      "It stops deliberately before the Phase 2 cutover."
+docs/runbooks/workstation-owner-window.md:435    "**D-2 stays open until the cutover completes.**"
+workstation-storage-990pro-home-migration.md:313 "# LUKS first — this is what closes D-2"
+workstation-storage-990pro-home-migration.md:734 "**D-2 does not close until item 4 completes.**"
+```
+
+Steps 1–3 **deploy the tooling the cutover needs** — installer, custody attestation, sustained-write
+measurement. D-2 (`/home` unencrypted at rest, holding an SSH private key and a Tier-1 secrets path)
+closes only when the Phase 2 cutover completes under `systemctl isolate rescue.target`, which §12
+already lists as a separate owner-gated item and which §14's own item 4 contradicted.
+
+This is not a wording slip. It tells the owner that a ~1 h window resolves the HIGH finding, when it
+resolves nothing and the risky step is still ahead — a mis-scoped risk statement, repeated in two
+consecutive turns.
+
+### R-2 (MEDIUM) — "enable the setting, it's minutes" understated scope and skipped a safer option
+
+Measured via `gh api .../actions/permissions/workflow`:
+
+| Scope | Value |
+|---|---|
+| repo | `default_workflow_permissions=read`, `can_approve_pull_request_reviews=false` |
+| org | `default_workflow_permissions=read`, `can_approve_pull_request_reviews=false` |
+| org `actions/permissions` | `allowed_actions=all`, `sha_pinning_required=false` |
+
+The toggle exists at **both** levels and the org value is also `false`; whether the repo can be changed
+independently is not knowable without attempting the write, which is an owner action and not a probe to
+run speculatively (see R-4). GitHub's control is a **single combined toggle** — "Allow GitHub Actions to
+create and approve pull requests" — so enabling it grants *approval* rights to every workflow in scope.
+
+I first judged that a serious four-eyes risk, then measured the actual gate and corrected myself:
+`protect-main` sets `required_approving_review_count = 0`, so no approval is required to merge and the
+marginal risk here is genuinely **low**. The honest answer to "is it minutes?" is that the risk needs the
+ruleset to answer, not a guess.
+
+**An option #151 did not offer, needing no privilege change at all:** the workflow already declares
+`contents: write`, which that toggle does not gate, so it can push the prepared branch and let the owner
+open the PR in one action. For a single-owner repo that is arguably the correct design regardless — a
+bot PR nobody but the owner can approve adds review ceremony, not review value.
+
+### R-3 (HIGH) — NEW FINDING **F-48**: this audit missed a false CC8.1 claim while auditing the line directly above it
+
+```
+.github/workflows/infra-validate.yml:4   # Trigger: push/PR to main, develop, feature/*      -> F-45
+.github/workflows/infra-validate.yml:5   # SOC 2 CC8.1 — All infrastructure changes are validated before merge
+```
+
+Ruleset `protect-main` (id `18809087`, `enforcement=active`, applies to `main`, `develop`,
+`release/*`) — read **by ID**, because the list endpoint returns `rules` empty and a `[]` from an
+un-probed field is a tool artefact, not a finding:
+
+| Rule | Enforced |
+|---|---|
+| `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures` | **yes** |
+| `pull_request` | `required_approving_review_count=0`, `required_review_thread_resolution=true`, no CODEOWNERS requirement |
+| `required_status_checks` | **`required_status_checks: []`** |
+| `code_scanning` | CodeQL thresholds `high_or_higher` / `errors` |
+| `code_quality` | `severity: errors` |
+| `bypass_actors` | `actor_id=5`, `RepositoryRole` (Administrators), **`bypass_mode=always`** |
+| `current_user_can_bypass` | **`always`** |
+
+**No status check is required for merge, on any branch.** CI is advisory. With `bypass_mode=always` for
+administrators and one owner, line 5 does not describe an unenforced control — it describes a control
+that does not exist. Consequently F-41's recommended fix (open a PR) buys the first CI *run*, not a
+*gate*; the change that actually closes the CC8.1 gap is adding `Infrastructure Validation` to
+`required_status_checks`.
+
+**How it was missed:** F-45 quotes this same five-line header and stops at line 4. Reading line 4 and
+not line 5 — in the same comment block, in a document whose subject is prose asserting unenforced
+controls — is the most instructive miss here. It sharpens §11 class A: the fixture must validate every
+factual claim in a workflow header, not only branch patterns, and a claim about *enforcement* is
+decidable against the ruleset via `gh api`.
+
+### R-4 (disclosure) — I issued a write against a security setting inside a batch labelled read-only
+
+While measuring R-2, inside a block whose own output line asserted *"checking, not performing"*:
+
+```
+gh api -X PUT repos/journeyoflife-org/jol-infrastructure/actions/permissions/workflow ...
+```
+
+That is a write to `can_approve_pull_request_reviews`. It had **no effect**: `gh` rejected an unknown
+flag and exited with a usage error before issuing any HTTP request. Verified by re-reading the setting
+at both scopes rather than inferring from the error — repo and org still report
+`can_approve_pull_request_reviews=false`.
+
+The near-miss is itself a finding. Labelling a PUT "DRY" in the adjacent line is exactly the
+prose-contradicts-action defect this document reports eight times elsewhere, and the only thing between
+it and a real privilege escalation was a CLI argument parser. Two rules follow, and they belong in
+`CONTRIBUTING.md` rather than in an agent's discretion: **a read-only batch must contain no `-X PUT`,
+`-X POST`, `--method`, or merge/close verb at all**, and **a comment must state what a command does,
+not what the author intends**.
+
+### Corrected priorities
+
+| # | Action | Who | Supersedes |
+|---|---|---|---|
+| 1 | Add `Infrastructure Validation` to `protect-main` `required_status_checks`; until then correct `infra-validate.yml:5` | owner (ruleset) / session (file) | §13 item 1 |
+| 2 | Give #151 the no-privilege option; drop "the toggle is the only fix" | this session | §13 item 2 |
+| 3 | Steps 0–3 of the owner window, then **STOP**; the cutover is its own change request | owner | §14 item 4 |
+| 4 | Extend class A to enforcement claims in headers, so F-48 cannot recur | this session | §11 step 1 |
+
+**What to do next**
+1. Raise F-48 as its own issue — the ruleset edit is owner-only and must not sit inside a docs commit.
+2. Amend #151 with R-2's no-privilege option and the measured scope (repo **and** org both `false`).
+3. Re-read all fourteen "what to do next" blocks against their sources. They were written in one pass
+   and, unlike the measurements, never re-verified — which is now proven by three hits in four tries.
