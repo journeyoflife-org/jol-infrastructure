@@ -107,8 +107,14 @@ Environment=DRY_RUN=0
 # Do NOT mask it with SuccessExitStatus: a unit that always looks green is the
 # defect this whole thread exists to prevent.
 Nice=15
-IONiceClass=2
-IONiceLevel=6
+# These are SYSTEMD property names, not rsync option names. The previous spelling
+# (IONiceClass / IONiceLevel) is unknown to systemd: measured on the deployed unit
+# 2026-11-07T13:30:14Z, the journal printed
+#   "Unknown key name 'IONiceClass' in section 'Service', ignoring."
+# on every reload, so the nightly ~79 GiB backup ran with NO I/O throttling while the
+# comment above claimed throttling was configured. best-effort class 2, priority 6.
+IOSchedulingClass=2
+IOSchedulingPriority=6
 TimeoutStartSec=2h
 
 [Install]
