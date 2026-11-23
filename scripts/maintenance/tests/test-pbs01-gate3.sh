@@ -63,9 +63,10 @@ J
 
 # Run the real gate text with a stubbed environment.
 # $1=list fixture path (or "" to simulate an unreadable query)  $2=status fixture path
-# SC2317: the stubs below are invoked only by the gate text sourced at the end of this
-# function, which shellcheck cannot see across the `.` — they are reachable.
-# shellcheck disable=SC2317
+# SC2317/SC2329: the stubs below are invoked only by the gate text sourced at the end of
+# this function, which shellcheck cannot see across the `.` — they are reachable, both
+# as code (SC2317) and as call targets (SC2329, emitted since ShellCheck 0.11.0).
+# shellcheck disable=SC2317,SC2329
 run_gate() {
     (
         ALERTS=0

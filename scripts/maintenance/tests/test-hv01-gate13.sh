@@ -52,9 +52,10 @@ printf '%s\n' 'Oct 25 06:01:06 pve postfix/smtp[3392583]: unusual format with no
 # Run the real gate text with a stubbed environment.
 # $1=journal fixture  $2=journalctl exit status  $3=proof content ('' = absent)
 # $4=days to backdate the proof record (empty = leave it at now)
-# SC2317: every stub below is invoked only by the gate text sourced at the end of
-# this function, which shellcheck cannot see across the `.` — they are reachable.
-# shellcheck disable=SC2317
+# SC2317/SC2329: every stub below is invoked only by the gate text sourced at the end
+# of this function, which shellcheck cannot see across the `.` — they are reachable,
+# both as code (SC2317) and as call targets (SC2329, emitted since ShellCheck 0.11.0).
+# shellcheck disable=SC2317,SC2329
 run_gate() {
     (
         ALERTS=0
